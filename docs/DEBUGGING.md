@@ -86,8 +86,6 @@ If `PING` works but `PWR_ON` doesn't, the CEC hardware connection is the issue. 
 | HDMI pin | Signal | Pico GPIO | Check with multimeter |
 |----------|--------|-----------|----------------------|
 | 13 | CEC | GP2 | ~2.5V idle (pulled up on TV side) |
-| 15 | DDC SCL | GP4 | ~3.3V idle (I2C pull-up) |
-| 16 | DDC SDA | GP5 | ~3.3V idle (I2C pull-up) |
 | 17 | GND | GND | 0V — continuity to Pico GND |
 | 19 | HPD (optional) | GP3 (via divider) | Check with TV connected |
 
@@ -99,8 +97,9 @@ No level shifter is needed for CEC on GP2. HDMI DDC on pins 15/16 should be trea
 - [ ] USB data connected to PC
 - [ ] HDMI breakout: PC → breakout → TV
 - [ ] CEC (GP2) to HDMI pin 13
-- [ ] DDC SCL (GP4) to HDMI pin 15
-- [ ] DDC SDA (GP5) to HDMI pin 16
 - [ ] GND to HDMI pin 17
 - [ ] HPD only if wired: GP3 via 10k/20k divider to HDMI pin 19
 - [ ] TV CEC enabled in settings (may be called "HDMI-CEC", "Anynet+", "Bravia Sync", etc.)
+
+If you want to retry EDID discovery later, add a bidirectional I2C level
+shifter first and only then reconnect HDMI pins 15/16 to GP4/GP5.

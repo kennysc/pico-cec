@@ -5,10 +5,10 @@ HDMI cable and bridges CEC between your TV and a Linux HTPC. Lets the PC
 wake the TV, switch inputs, and suspend itself when you turn the TV off
 with its remote.
 
-- CEC physical address is discovered **dynamically via EDID** — plug into
-  any HDMI port, it just works.
+- Current recommended setup uses a **static CEC physical address** of
+  `1.0.0.0` (TV HDMI 1).
 - On `PWR_ON`: wakes TV + switches to this input (sends `<Image View On>`
-  then `<Active Source>` with the discovered address).
+  then `<Active Source>` with the configured address).
 - On `PWR_OFF`: sends `<Standby>` broadcast.
 - Detects TV standby → triggers `systemctl suspend`.
 
@@ -20,7 +20,7 @@ with its remote.
 |------|-------|
 | Waveshare RP2040-Zero | Any RP2040 board works with pin changes |
 | HDMI breakout board | Male+female passthrough to tap signals |
-| Female-to-female jumper wires | 4-5 wires |
+| Female-to-female jumper wires | 2-5 wires depending on options |
 | 10kΩ + 20kΩ resistors | Only if wiring HPD (optional) |
 | USB-C cable | Data, to connect Pico to PC |
 
@@ -29,8 +29,6 @@ with its remote.
 | HDMI pin | Signal | RP2040-Zero GPIO |
 |----------|--------|-------------------|
 | 13 | CEC | GP2 |
-| 15 | DDC SCL | GP4 (I2C0 SCL) |
-| 16 | DDC SDA | GP5 (I2C0 SDA) |
 | 17 | GND | GND |
 | 19 (optional) | HPD | GP3 (via 10k/20k divider) |
 
@@ -38,8 +36,6 @@ with its remote.
 HDMI breakout               RP2040-Zero
 ─────────────               ───────────
 pin 13 (CEC) ───────────────GP2
-pin 15 (DDC SCL) ───────────GP4
-pin 16 (DDC SDA) ───────────GP5
 pin 17 (GND) ───────────────GND
 pin 19 (HPD) ──[10k]────┬──GP3
                         [20k]
@@ -47,17 +43,16 @@ pin 19 (HPD) ──[10k]────┬──GP3
                         GND
 ```
 
-The Pico sits inline: **PC → breakout → TV**. CEC/DDC/GND are tapped off
+The Pico sits inline: **PC → breakout → TV**. CEC/GND are tapped off
 the passthrough; video signals pass straight through. The Pico connects to
 the PC via USB for serial communication.
 
-HPD is optional — skip those wires and the firmware works fine (it
-re-discovers the physical address automatically before every `PWR_ON`).
+HPD is optional — skip those wires and the firmware still works fine.
 
-**No level shifters needed.** CEC and DDC are open-drain; the Pico drives
-them by pulling GPIOs low (output) or releasing them (input). 3.3V logic
-coexists safely with the 5V bus pull-ups. HPD is the only signal that can
-be actively driven to 5V, hence the resistor divider.
+Do not connect HDMI DDC pins 15/16 directly to `GP4`/`GP5` on the current
+hardware. On the tested setup the DDC bus idled at about 5.1V; Linux could
+read EDID, but direct RP2040 access failed. If you want to retry dynamic EDID
+later, add a bidirectional I2C level shifter first.
 
 > GP16 is the onboard WS2812 LED — do not wire anything to it.
 
@@ -72,6 +67,13 @@ cmake .. && make -j4
 ```
 
 Output: `firmware/build/pico-cec-bridge.uf2`
+
+If the `.uf2` side artifact is not emitted automatically in your local build
+tree, generate it manually with:
+
+```bash
+firmware/build/_deps/picotool/picotool uf2 convert --quiet firmware/build/pico-cec-bridge.elf firmware/build/pico-cec-bridge.uf2 --family rp2040
+```
 
 Board target is `waveshare_rp2040_zero`. USB stdio only (no UART). Requires the ARM GCC toolchain (`gcc-arm-none-eabi`).
 
@@ -97,10 +99,10 @@ sudo ./install.sh
 
 This does the following:
 
-- Creates an unprivileged `picocec` system user (in the `dialout` group)
+- Creates a `picocec` system user
 - Installs `pyserial` into a dedicated venv at `/usr/local/lib/pico-cec-venv`
 - Installs udev rule → stable symlink `/dev/pico-cec`
-- Installs polkit rule → lets `picocec` call `systemctl suspend`
+- Installs polkit rule (currently stale unless the listener is moved back to `User=picocec`)
 - Installs and enables systemd units:
   - `pico-cec-listener.service` — long-running daemon, owns the serial
     port, suspends on TV standby
@@ -132,8 +134,7 @@ pico-cec-ctl.py PWR_ON     # TV should wake + switch input
 pico-cec-ctl.py PWR_OFF    # TV should go to standby
 ```
 
-Check for `EVT:READY:PA=<a.b.c.d>` in the logs — the physical address
-should be non-zero and match whatever HDMI port the cable is plugged into.
+Check for `EVT:READY:PA=1.0.0.0` in the logs unless you changed the stored PA.
 
 ---
 
@@ -163,4 +164,4 @@ pico-sdk/        — Git submodule (github.com/raspberrypi/pico-sdk)
 ## More info
 
 See [docs/WIRING_AND_SETUP.md](docs/WIRING_AND_SETUP.md) for detailed
-wiring rationale, known gaps, and troubleshooting.
+wiring rationale, future EDID retry notes, and troubleshooting.

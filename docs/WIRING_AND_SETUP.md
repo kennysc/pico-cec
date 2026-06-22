@@ -4,18 +4,19 @@
 
 A Raspberry Pi RP2040 board — specifically a **Waveshare RP2040-Zero** —
 sits inline with the HDMI cable between your Bazzite HTPC and the TV,
-tapping CEC + DDC + GND. It:
+tapping CEC + GND (and optionally HPD). In the current recommended setup it:
 
-- Discovers its CEC **physical address dynamically via DDC/EDID** every
-  time it needs it — never hardcoded to a port number, so moving the cable
-  to a different TV input just works.
-- On `PWR_ON`: sends `<Image View On>` then `<Active Source>` (with the
-  freshly-discovered physical address) so the TV wakes AND switches to the
-  correct input, regardless of which physical HDMI port it's in.
+- Uses a **static CEC physical address** of `1.0.0.0` (TV HDMI 1).
+- On `PWR_ON`: sends `<Image View On>` then `<Active Source>` with that
+  configured physical address so the TV wakes and switches to HDMI 1.
 - On `PWR_OFF`: sends `<Standby>` broadcast.
 - Listens for `<Standby>` from the TV (logical address 0) and reports it
   to the PC over serial, so the PC can suspend itself when you turn the TV
   off with its own remote.
+
+The codebase still contains EDID discovery experiments behind the direct
+serial `CMD:DISCOVER_PA` path, but do not wire DDC directly to GP4/GP5 on the
+current hardware. See §3 if you want to revisit dynamic EDID later.
 
 ## 2. Wiring
 
@@ -60,14 +61,11 @@ pin 19 (HPD, optional) ──[10k]──┬──GP3
 If you use a common BSS138-style bidirectional I2C level shifter, one module handles both DDC lines: one channel for SCL and one for SDA. Wire HDMI pin 18 to the shifter HV pin, Pico 3V3 to LV, and share ground with HDMI pin 17.
 
 The Pico sits **inline**: PC HDMI out → breakout board (male/female
-passthrough) → TV. CEC/DDC/GND are tapped off the passthrough; video
-signal lines pass straight through untouched. The Pico connects to the PC
-separately via USB for the serial control link.
+passthrough) → TV. CEC/GND (and optionally HPD) are tapped off the
+passthrough; video signal lines pass straight through untouched. The Pico
+connects to the PC separately via USB for the serial control link.
 
-If you don't want HPD wiring, skip it — firmware works without it, just
-re-discovers physical address less proactively (still safe: it
-re-discovers automatically before any `PWR_ON` if its cached address is
-unknown/stale).
+If you don't want HPD wiring, skip it — firmware works without it.
 
 ## 3. DDC voltage levels
 
@@ -90,7 +88,7 @@ resistor divider (10k/20k) if you wire that pin.
 - `main.c` — application layer: serial protocol parsing, CEC action
   dispatch (`PWR_ON`/`PWR_OFF`/`PING`), incoming frame handling.
 - `cec_transceiver.c` — CEC bit-banging RX (edge-IRQ driven) and TX
-  (alarm-IRQ driven), EDID/DDC physical address discovery over I2C.
+  (alarm-IRQ driven), plus experimental EDID/DDC discovery helpers.
 - `cec_transceiver.h` — interface for the transceiver layer.
 - `CMakeLists.txt` — Pico SDK project, board `waveshare_rp2040_zero`,
   USB stdio only.
@@ -107,13 +105,13 @@ sudo ./install.sh
 ```
 
 This:
-- Creates an unprivileged `picocec` system user (in the `dialout` group
-  for serial access)
+- Creates a `picocec` system user
 - Installs pyserial into a dedicated venv at `/usr/local/lib/pico-cec-venv`
   (avoids `rpm-ostree install` + reboot entirely — venvs live on the
   writable `/usr/local` overlay)
 - Installs the udev rule (`/dev/pico-cec` stable symlink)
-- Installs the polkit rule (lets `picocec` call `systemctl suspend`)
+- Installs the polkit rule (currently stale unless the listener is moved
+  back to `User=picocec`)
 - Installs and enables:
   - `pico-cec-listener.service` — long-running daemon, owns the serial
     port, suspends the system on `EVT:CEC_TV_STANDBY`
@@ -146,9 +144,8 @@ pico-cec-ctl.py PWR_ON    # TV should wake + switch input
 pico-cec-ctl.py PWR_OFF   # TV should go to standby
 ```
 
-Check that `EVT:READY:PA=...` in the logs shows a *sensible, non-zero*
-physical address matching wherever you've actually got the cable plugged
-in — that's your confirmation dynamic discovery is working.
+Check that `EVT:READY:PA=1.0.0.0` appears in the logs unless you've manually
+changed the stored physical address.
 
 ## 7. Known gaps
 

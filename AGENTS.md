@@ -8,7 +8,7 @@
 ## Build And Verify
 
 - Firmware build: `cmake -S firmware -B firmware/build && cmake --build firmware/build -j4`
-- Firmware artifact: `firmware/build/pico-cec-bridge.uf2`
+- Firmware artifact: `firmware/build/pico-cec-bridge.uf2`; if the local build tree does not emit it automatically, generate it with `firmware/build/_deps/picotool/picotool uf2 convert --quiet firmware/build/pico-cec-bridge.elf firmware/build/pico-cec-bridge.uf2 --family rp2040`.
 - Board/toolchain assumptions come from `firmware/CMakeLists.txt`: `waveshare_rp2040_zero`, USB stdio enabled, UART stdio disabled, ARM GCC required.
 - There is no repo-local automated test/lint setup. Real verification is firmware build plus hardware checks.
 - Installed-system smoke tests: `pico-cec-ctl.py PING`, `pico-cec-ctl.py PWR_ON`, `pico-cec-ctl.py PWR_OFF`, and `journalctl -u pico-cec-listener.service -f`.
@@ -23,10 +23,11 @@
 
 ## Current Protocol Reality
 
-- Firmware supports `CMD:PWR_ON`, `CMD:PWR_OFF`, `CMD:PING`, `CMD:PA`, and `CMD:SET_PA:X.X.X.X` in `firmware/main.c`.
+- Firmware supports `CMD:PWR_ON`, `CMD:PWR_OFF`, `CMD:PING`, `CMD:PA`, `CMD:SET_PA:X.X.X.X`, and direct-serial-only `CMD:DISCOVER_PA` in `firmware/main.c`.
 - The listener control socket only forwards `PWR_ON`, `PWR_OFF`, and `PING`. `PA` and `SET_PA` work only over direct serial unless you extend both Python scripts.
 - Trust `firmware/main.c` over the prose docs for physical-address behavior: current firmware loads PA from flash, defaults to `1.0.0.0` if unset, and can persist a new PA via `CMD:SET_PA` or `bin/make-pa-uf2.py`.
-- The code still contains EDID-discovery helpers, but the current boot path does not call them before advertising readiness or auto-powering on.
+- Current recommended hardware path is static PA only: wire CEC/GND/(optional HPD), leave DDC disconnected unless you add a bidirectional I2C level shifter and are explicitly retrying EDID via direct serial.
+- The code still contains EDID-discovery helpers for future debugging, but the current boot path does not call them before advertising readiness or auto-powering on.
 
 ## Install Gotchas
 
