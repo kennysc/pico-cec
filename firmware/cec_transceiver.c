@@ -19,6 +19,7 @@
 #include "hardware/gpio.h"
 #include "hardware/i2c.h"
 #include "hardware/irq.h"
+#include "hardware/sync.h"
 #include "hardware/timer.h"
 #include "cec_transceiver.h"
 
@@ -551,7 +552,7 @@ bool cec_receive_poll(cec_frame_t *out_frame) {
   // Critical section: ISR must not fire between checking the flag and
   // re-arming (which clears the buffer). Also, after a TX operation the
   // RX IRQ is left disabled, so we always re-arm here.
-  __disable_irq();
+  uint32_t irq_save = save_and_disable_interrupts();
 
   if (rx.frame_ready) {
     uint8_t header = rx.data[0];
@@ -575,7 +576,7 @@ bool cec_receive_poll(cec_frame_t *out_frame) {
 
   cec_rx_start();
 
-  __enable_irq();
+  restore_interrupts(irq_save);
 
   return got;
 }

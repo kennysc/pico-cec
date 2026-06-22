@@ -21,6 +21,8 @@ cmake_minimum_required(VERSION 3.13)
 # macros we don't rely on (we set all our own pins explicitly in main.c).
 set(PICO_BOARD waveshare_rp2040_zero)
 
+# Point at the submodule by default; users can override via env var or -D.
+set(PICO_SDK_PATH "${CMAKE_CURRENT_LIST_DIR}/../pico-sdk")
 include(pico_sdk_import.cmake)
 
 project(pico_cec_bridge C CXX ASM)

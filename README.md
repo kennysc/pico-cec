@@ -67,14 +67,13 @@ be actively driven to 5V, hence the resistor divider.
 
 ```bash
 cd firmware
-export PICO_SDK_PATH=../pico-sdk
 mkdir build && cd build
 cmake .. && make -j4
 ```
 
 Output: `firmware/build/pico-cec-bridge.uf2`
 
-Board target is `waveshare_rp2040_zero`. USB stdio only (no UART).
+Board target is `waveshare_rp2040_zero`. USB stdio only (no UART). Requires the ARM GCC toolchain (`gcc-arm-none-eabi`).
 
 ## Flash
 
@@ -145,6 +144,7 @@ firmware/        — Pico firmware (C, Pico SDK)
   main.c         — Application: serial protocol + CEC actions
   cec_transceiver.c/h — CEC bit-banging RX/TX + EDID discovery
   CMakeLists.txt — Build config (waveshare_rp2040_zero, USB stdio)
+  pico_sdk_import.cmake — Copied from SDK; locates pico-sdk submodule
 bin/             — PC-side Python scripts
   pico-cec-listener.py — Daemon: owns serial port, exposes control socket
   pico-cec-ctl.py      — CLI client for the control socket

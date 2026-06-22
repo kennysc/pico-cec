@@ -4,6 +4,7 @@
 
 ```
 firmware/   — Pico firmware (C, Pico SDK)
+  pico_sdk_import.cmake — copied from SDK; locates submodule automatically
 bin/        — PC-side Python scripts
 systemd/    — systemd units, udev rules, polkit rule, sleep hook
 docs/       — wiring and setup guide
@@ -15,13 +16,12 @@ install.sh  — run as root on Bazzite; expects bin/ and systemd/ subdirs
 
 ```bash
 cd firmware
-export PICO_SDK_PATH=../pico-sdk
 mkdir build && cd build
 cmake .. && make -j4
 # produces pico-cec-bridge.uf2 — copy to Pico in BOOTSEL mode
 ```
 
-Board is `waveshare_rp2040_zero`. USB stdio only (no UART) → device appears as `/dev/ttyACMx`.
+Board is `waveshare_rp2040_zero`. USB stdio only (no UART) → device appears as `/dev/ttyACMx`. Requires ARM GCC toolchain (`gcc-arm-none-eabi`).
 
 ## PC-side install
 
