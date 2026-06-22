@@ -119,8 +119,8 @@ This:
     sends `PWR_ON`
   - `pico-cec-shutdown.service` — fires on system shutdown/reboot (via
     `ExecStop`), sends `PWR_OFF`
-  - `/etc/systemd/system-sleep/50-pico-cec.sh` — fires on suspend/resume,
-    sends `PWR_OFF` before sleep and `PWR_ON` after resume
+  - `pico-cec-suspend.service` — fires on suspend/resume via
+    `suspend.target`, sends `PWR_OFF` before sleep and `PWR_ON` after resume
 
 > **Verify the udev VID:PID** before relying on the symlink:
 > ```bash

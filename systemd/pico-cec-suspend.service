@@ -1,0 +1,15 @@
+[Unit]
+Description=Pico CEC: TV standby on suspend
+Before=suspend.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/pico-cec-ctl.py PWR_OFF
+ExecStop=/usr/local/bin/pico-cec-ctl.py PWR_ON
+TimeoutStartSec=10
+TimeoutStopSec=10
+StopWhenUnneeded=yes
+
+[Install]
+WantedBy=suspend.target

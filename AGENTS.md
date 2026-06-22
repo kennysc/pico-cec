@@ -19,7 +19,7 @@
 - `bin/pico-cec-listener.py` is the only process that should own the serial port; everything else talks to `/run/pico-cec/control.sock`.
 - `bin/pico-cec-ctl.py` is just a Unix-socket client for the listener. Systemd boot/shutdown/sleep hooks use it specifically to avoid serial-port contention.
 - `systemd/pico-cec-shutdown.service` relies on `RemainAfterExit=true` plus `ExecStop=` to send `PWR_OFF` during shutdown.
-- `systemd/50-pico-cec.sh` handles suspend/resume only; it sends `PWR_OFF` on `pre/*` and `PWR_ON` on `post/*`.
+- `systemd/pico-cec-suspend.service` handles suspend/resume via `suspend.target`: `ExecStart=` sends `PWR_OFF` on suspend entry and `ExecStop=` sends `PWR_ON` after resume.
 
 ## Current Protocol Reality
 

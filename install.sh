@@ -60,10 +60,11 @@ install -Dm644 "$SYSTEMD_DIR/pico-cec-boot.service" \
     /etc/systemd/system/pico-cec-boot.service
 install -Dm644 "$SYSTEMD_DIR/pico-cec-shutdown.service" \
     /etc/systemd/system/pico-cec-shutdown.service
+install -Dm644 "$SYSTEMD_DIR/pico-cec-suspend.service" \
+    /etc/systemd/system/pico-cec-suspend.service
 
-echo "==> installing systemd-sleep hook"
-install -Dm755 "$SYSTEMD_DIR/50-pico-cec.sh" \
-    /etc/systemd/system-sleep/50-pico-cec.sh
+echo "==> removing legacy systemd-sleep hook"
+rm -f /etc/systemd/system-sleep/50-pico-cec.sh
 
 echo "==> reloading systemd, enabling units"
 systemctl daemon-reload
@@ -71,6 +72,7 @@ systemctl enable pico-cec-listener.service
 systemctl restart pico-cec-listener.service
 systemctl enable pico-cec-boot.service
 systemctl enable pico-cec-shutdown.service
+systemctl enable pico-cec-suspend.service
 if ! systemctl is-active --quiet pico-cec-shutdown.service; then
     systemctl start pico-cec-shutdown.service
 fi

@@ -109,8 +109,8 @@ This does the following:
   - `pico-cec-boot.service` — fires at graphical session start, sends
     `PWR_ON`
   - `pico-cec-shutdown.service` — fires on shutdown/reboot, sends `PWR_OFF`
-- Installs `/etc/systemd/system-sleep/50-pico-cec.sh` — sends `PWR_OFF`
-  before suspend, `PWR_ON` after resume
+  - `pico-cec-suspend.service` — fires on suspend/resume, sends `PWR_OFF`
+    on suspend entry and `PWR_ON` after resume
 
 > **Verify the udev VID:PID** before relying on the symlink:
 > ```bash
