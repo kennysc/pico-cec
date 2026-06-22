@@ -18,3 +18,6 @@ Restart=always
 RestartSec=2
 RuntimeDirectory=pico-cec
 RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target
