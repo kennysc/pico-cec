@@ -1,0 +1,14 @@
+// /etc/polkit-1/rules.d/49-pico-cec-suspend.rules
+//
+// Allows the unprivileged 'picocec' system user (which runs
+// pico-cec-listener.service) to call `systemctl suspend` without being
+// root. Without this, systemctl suspend run as 'picocec' will be denied
+// by polkit's default org.freedesktop.login1.suspend policy, which
+// normally requires an active local session or root.
+
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.login1.suspend" &&
+        subject.user == "picocec") {
+        return polkit.Result.YES;
+    }
+});

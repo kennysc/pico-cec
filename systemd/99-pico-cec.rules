@@ -1,0 +1,13 @@
+# /etc/udev/rules.d/99-pico-cec.rules
+#
+# Creates a stable /dev/pico-cec symlink regardless of which /dev/ttyACMx
+# node the kernel assigns, and regardless of boot order vs other USB-serial
+# devices. Also sets group ownership so the listener service (running as
+# a dedicated system user) can access it without being root.
+#
+# Find your Pico's actual VID:PID with: udevadm info -a -n /dev/ttyACM0 | grep -E 'idVendor|idProduct'
+# The values below are the Pico SDK's default USB CDC (TinyUSB) VID:PID,
+# used by the Raspberry Pi Pico's stock serial-over-USB stack. If your
+# firmware sets a custom VID/PID, update accordingly.
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="000a", SYMLINK+="pico-cec", GROUP="picocec", MODE="0660", TAG+="systemd"

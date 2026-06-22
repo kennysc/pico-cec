@@ -1,0 +1,37 @@
+# /etc/systemd/system/pico-cec-shutdown.service
+#
+# systemd-sleep's hook mechanism only covers suspend/hibernate, not a full
+# poweroff/halt/reboot. This unit catches that case: it does nothing on
+# start, but on STOP (which happens during shutdown, as systemd tears down
+# units in reverse dependency order) it tells the Pico to put the TV in
+# standby.
+#
+# RemainAfterExit=true is what makes "stop" a meaningful, catchable event
+# here -- without it there's nothing running for shutdown to "stop".
+#
+# Note: on `systemctl reboot` this also fires (reboot tears down units the
+# same way poweroff does), so the TV will standby right before reboot too.
+# If you don't want that, change WantedBy to target only poweroff.target
+# and halt.target instead of multi-user.target, at the cost of not running
+# during normal boot to arm itself -- not recommended, see comment below.
+
+[Unit]
+Description=Pico CEC: TV standby on shutdown
+DefaultDependencies=no
+Before=shutdown.target
+Conflicts=shutdown.target
+After=pico-cec-listener.service
+Requires=pico-cec-listener.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+# No-op on start: this unit's only job is the ExecStop action below.
+# It must be "started" (and thus running) during normal operation so that
+# systemd has something to *stop* during shutdown -- that stop is our hook.
+ExecStart=/bin/true
+ExecStop=/usr/local/bin/pico-cec-ctl.py PWR_OFF
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
