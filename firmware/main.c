@@ -10,7 +10,8 @@
  *   PC -> Pico:
  *     CMD:PWR_ON
  *     CMD:PWR_OFF
- *     CMD:PA           (query physical address)
+ *     CMD:PA                (query current physical address)
+ *     CMD:SET_PA:X.X.X.X    (set PA, saved to flash, survives reboot)
  *     CMD:PING
  *
  *   Pico -> PC:
@@ -29,8 +30,46 @@
 #include <stdlib.h>
 
 #include "pico/stdlib.h"
+#include "hardware/flash.h"
+#include "hardware/sync.h"
 #include "cec_transceiver.h"
 #include "ws2812.h"
+
+/* ---- Flash config (last sector of 2MB flash) --------------------------- */
+
+#define FLASH_CONFIG_OFFSET (2 * 1024 * 1024 - FLASH_SECTOR_SIZE)
+#define FLASH_CONFIG_MAGIC  0xCEC0CAFE
+
+typedef struct {
+    uint32_t magic;
+    uint16_t pa;
+    uint8_t  _pad[FLASH_PAGE_SIZE - 6];
+} flash_config_t;
+
+static_assert(sizeof(flash_config_t) == FLASH_PAGE_SIZE, "flash_config_t size mismatch");
+
+static const flash_config_t *flash_config =
+    (const flash_config_t *)(XIP_BASE + FLASH_CONFIG_OFFSET);
+
+static cec_physical_address_t config_load_pa(void) {
+    if (flash_config->magic == FLASH_CONFIG_MAGIC &&
+        flash_config->pa != 0xFFFF &&
+        flash_config->pa != 0x0000) {
+        return flash_config->pa;
+    }
+    return CEC_PA_UNKNOWN;
+}
+
+static void config_save_pa(cec_physical_address_t pa) {
+    flash_config_t cfg = {0};
+    cfg.magic = FLASH_CONFIG_MAGIC;
+    cfg.pa    = pa;
+    uint32_t irq = save_and_disable_interrupts();
+    flash_range_erase(FLASH_CONFIG_OFFSET, FLASH_SECTOR_SIZE);
+    flash_range_program(FLASH_CONFIG_OFFSET, (const uint8_t *)&cfg,
+                        FLASH_PAGE_SIZE);
+    restore_interrupts(irq);
+}
 
 /* ---- CEC protocol constants (CEC 1.4b) -------------------------------- */
 
@@ -262,6 +301,24 @@ static void handle_command_line(char *line) {
         } else {
             send_nack("PA", "pa_unknown");
         }
+    } else if (strncmp(cmd, "SET_PA:", 7) == 0) {
+        unsigned a, b, c, d;
+        if (sscanf(cmd + 7, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 &&
+            a < 16 && b < 16 && c < 16 && d < 16) {
+            cec_physical_address_t pa =
+                (a << 12) | (b << 8) | (c << 4) | d;
+            config_save_pa(pa);
+            g_my_pa = pa;
+            send_ready_event(pa);
+            uint8_t la;
+            if (cec_claim_logical_address(pa, &la)) {
+                g_my_logical_addr = la;
+            }
+            ws2812_set_hex(WS2812_GREEN);
+            send_ack("SET_PA");
+        } else {
+            send_nack("SET_PA", "invalid_format");
+        }
     } else if (strcmp(cmd, "PING") == 0) {
         send_line("PONG");
     } else {
@@ -289,19 +346,23 @@ int main(void) {
         }
     }
 
-    /* Physical address is hardcoded -- DDC/EDID is not available because
-     * the GPU uses a DP-to-HDMI adapter that blocks DDC, and the TV is
-     * on HDMI port 1 giving physical address 1.0.0.0 = 0x1000.
-     * If the TV port changes, update this value. */
-    g_my_pa = 0x1000;
-    send_ready_event(g_my_pa);
-    ws2812_set_hex(WS2812_GREEN);
-    uint8_t la;
-    if (!cec_claim_logical_address(g_my_pa, &la)) {
-        send_event("ERROR:logical_addr_claim_failed");
-        ws2812_set_hex(WS2812_RED);
-    } else {
-        g_my_logical_addr = la;
+    /* Load physical address from flash config. Falls back to 1.0.0.0 if
+     * no config has been saved yet. Use CMD:SET_PA:X.X.X.X to change. */
+    {
+        cec_physical_address_t pa = config_load_pa();
+        if (pa == CEC_PA_UNKNOWN) {
+            pa = 0x1000;  /* default: HDMI port 1 */
+        }
+        g_my_pa = pa;
+        send_ready_event(g_my_pa);
+        ws2812_set_hex(WS2812_GREEN);
+        uint8_t la;
+        if (!cec_claim_logical_address(g_my_pa, &la)) {
+            send_event("ERROR:logical_addr_claim_failed");
+            ws2812_set_hex(WS2812_RED);
+        } else {
+            g_my_logical_addr = la;
+        }
     }
 
     /* Send <Image View On> + <Active Source> at boot so the TV wakes and

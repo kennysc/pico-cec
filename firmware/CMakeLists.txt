@@ -43,6 +43,8 @@ target_link_libraries(pico-cec-bridge
     hardware_irq
     hardware_timer
     hardware_pio
+    hardware_flash
+    hardware_sync
 )
 
 pico_generate_pio_header(pico-cec-bridge ${CMAKE_CURRENT_SOURCE_DIR}/ws2812.pio)
