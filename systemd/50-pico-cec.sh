@@ -15,6 +15,8 @@
 
 set -euo pipefail
 
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
 ACTION="$1"
 TARGET="$2"
 
@@ -23,9 +25,9 @@ LOG_TAG="pico-cec-sleep-hook"
 LOG_FILE=/run/pico-cec/sleep-hook.log
 
 log() {
-    mkdir -p /run/pico-cec
-    printf '%s %s\n' "$(date --iso-8601=seconds)" "$*" >> "$LOG_FILE"
-    logger -t "$LOG_TAG" "$*"
+    /usr/bin/mkdir -p /run/pico-cec
+    /usr/bin/printf '%s %s\n' "$(/usr/bin/date --iso-8601=seconds)" "$*" >> "$LOG_FILE"
+    /usr/bin/logger -t "$LOG_TAG" "$*"
 }
 
 case "$ACTION/$TARGET" in
