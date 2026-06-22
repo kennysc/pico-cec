@@ -25,10 +25,10 @@ Board: **Waveshare RP2040-Zero**. Pin numbers below are raw GPIO numbers
 onboard flash, or the crystal.
 
 | HDMI pin | Signal | RP2040-Zero GPIO | Notes |
-|---|---|---|---|
-| 13 | CEC | GP2 | Open-drain; pull-up to 3.3V if not already present on TV side |
-| 15 | DDC clock (SCL) | GP4 (I2C0 SCL) | Open-drain, 5V nominal — Pico/RP2040 GPIOs are informally tolerant of this in the field (per gkoh/pico-cec), not formally rated 5V-safe |
-| 16 | DDC data (SDA) | GP5 (I2C0 SDA) | Same caveat as SCL |
+|---|---|---|---|---|
+| 13 | CEC | GP2 | Open-drain; **requires 10kΩ pull-up to 3.3V** (TV-side pull-up may not pass through breakout board) |
+| 15 | DDC clock (SCL) | GP4 (I2C0 SCL) | Open-drain, 5V nominal — **requires 10kΩ pull-up to 5V**. RP2040 GPIOs are informally 5V-tolerant in open-drain config (per gkoh/pico-cec), not formally rated 5V-safe |
+| 16 | DDC data (SDA) | GP5 (I2C0 SDA) | Same as SCL — **requires 10kΩ pull-up to 5V** |
 | 17 | GND | GND | **Must** be tied — common reference for everything else |
 | 19 (optional) | HPD | GP3 | **Needs a resistor divider** (e.g. 10k/20k) — HPD can be driven to 5V on some sources unlike CEC/DDC |
 | — | Status LED (optional) | GP16 | **Reserved on this board** — hardwired on-board to the onboard WS2812 (NeoPixel) RGB LED's DIN. Don't wire anything external here. |
@@ -36,15 +36,39 @@ onboard flash, or the crystal.
 ```
 HDMI breakout                    RP2040-Zero
 ─────────────                    ───────────
-pin 13 (CEC) ────────────────────GP2
-pin 15 (DDC SCL) ─────────────────GP4
-pin 16 (DDC SDA) ─────────────────GP5
-pin 17 (GND) ─────────────────────GND
+
+              +3.3V
+               │
+              ┌┴┐ 10kΩ
+              └┬┘
+               │
+pin 13 (CEC) ──┴──────────────────GP2
+
+              +5V (from HDMI pin 18)
+               │
+              ┌┴┐ 10kΩ
+              └┬┘
+               │
+pin 15 (DDC SCL) ─┴────────────────GP4
+
+              +5V (from HDMI pin 18)
+               │
+              ┌┴┐ 10kΩ
+              └┬┘
+               │
+pin 16 (DDC SDA) ─┴────────────────GP5
+
+pin 17 (GND) ──────────────────────GND
+
 pin 19 (HPD, optional) ──[10k]──┬──GP3
                                  [20k]
                                   │
                                  GND
 ```
+
+Pull-up resistor ratings: any 1/8W or larger through-hole or 0805+ SMD, 10kΩ ±5%.
+
+The +5V for DDC pull-ups can be taken from HDMI pin 18 (+5V power). Do not use the RP2040-Zero's onboard 3.3V or 5V pins for DDC pull-ups — they must reference the same 5V domain as the HDMI DDC bus.
 
 The Pico sits **inline**: PC HDMI out → breakout board (male/female
 passthrough) → TV. CEC/DDC/GND are tapped off the passthrough; video
@@ -56,15 +80,21 @@ re-discovers physical address less proactively (still safe: it
 re-discovers automatically before any `PWR_ON` if its cached address is
 unknown/stale).
 
-## 3. Why no level shifters
+## 3. Pull-up resistors
 
-CEC and DDC are both open-drain signals that idle high via pull-ups
-already present on the HDMI side of the link; the Pico drives them by
-switching GPIO direction (input = released/high, output-low = driven low)
-rather than actively driving a high level, so 3.3V logic and 5V bus
-pull-ups coexist safely. This matches gkoh/pico-cec's field-proven wiring
-approach. HPD is the one signal that can be actively driven to 5V by some
-sources, hence the divider.
+CEC and DDC are open-drain signals that idle high via pull-ups. While the
+HDMI sink (TV) is supposed to provide these pull-ups internally, many
+breakout boards **do not pass them through** to the tapped lines, making
+external pull-ups necessary. See the schematic in §2: 10kΩ to 3.3V on CEC,
+10kΩ to 5V on each DDC line.
+
+The RP2040 drives these pins by switching GPIO direction (input =
+released/high, output-low = driven low) rather than actively driving a
+high level, so 3.3V logic and 5V bus pull-ups coexist safely without level
+shifters. This matches gkoh/pico-cec's field-proven wiring approach.
+
+HPD can be actively driven to 5V by some sources, hence the optional
+resistor divider (10k/20k) if you wire that pin.
 
 ## 4. Firmware overview
 
@@ -136,9 +166,11 @@ in — that's your confirmation dynamic discovery is working.
 1. **PIO-based TX/RX** — stretch goal. The current interrupt-driven
    approach (edge-IRQ RX, alarm-IRQ TX) is field-validated against
    `cec-compliance`. PIO would free up CPU and reduce jitter.
-2. **WS2812 status LED** — GP16 is reserved for the onboard LED but no
+2. ~~**WS2812 status LED** — GP16 is reserved for the onboard LED but no
    driver is implemented yet. Would be useful for visual status (idle
-   blue, active green, error red).
+   blue, active green, error red).~~ **Done.** PIO-based driver implemented.
+   Colour conventions: blue (booting), green (ready), red (error),
+   yellow (TV standby detected).
 3. **HPD wiring** — documented but optional. Only needed if you want
    immediate physical address re-discovery on cable move while the PC is
    running (see §2 for the divider circuit).

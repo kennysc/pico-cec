@@ -33,7 +33,8 @@ pico_sdk_init()
 
 add_executable(pico-cec-bridge
     main.c
-    cec_transceiver.c   # <-- to be written/adapted; see cec_transceiver.h
+    cec_transceiver.c
+    ws2812.c
 )
 
 target_link_libraries(pico-cec-bridge
@@ -41,8 +42,10 @@ target_link_libraries(pico-cec-bridge
     hardware_i2c
     hardware_irq
     hardware_timer
-    # hardware_pio        # uncomment if/when porting RX/TX to PIO
+    hardware_pio
 )
+
+pico_generate_pio_header(pico-cec-bridge ${CMAKE_CURRENT_SOURCE_DIR}/ws2812.pio)
 
 # USB serial (stdio over USB CDC), no UART console -- matches the PC-side
 # listener which expects a /dev/ttyACMx style device.

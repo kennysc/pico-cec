@@ -93,6 +93,7 @@ static struct {
   uint8_t bit;
   uint8_t state;
   bool ack;
+  bool broadcast;
   uint64_t start;
   bool done;
 } tx;
@@ -340,8 +341,10 @@ static int64_t cec_tx_alarm(alarm_id_t alarm, void *user_data) {
       }
 
     case TX_STATE_ACK_WAIT:
-      if (!gpio_get(cec_gpio)) {
-        tx.ack = true;
+      if (tx.broadcast) {
+        tx.ack = gpio_get(cec_gpio);
+      } else {
+        tx.ack = !gpio_get(cec_gpio);
       }
       tx.state = TX_STATE_END;
       return time_until(tx.start, 2400);
@@ -356,8 +359,12 @@ static int64_t cec_tx_alarm(alarm_id_t alarm, void *user_data) {
 /* ---- Transmit one frame (blocking) ------------------------------------- */
 
 static bool cec_frame_send_raw(const uint8_t *msg, uint8_t len) {
-  // Wait 7 bit-times of idle bus
+  bool is_broadcast = ((msg[0] & 0x0F) == 0x0F);
+
+  // Wait 7 bit-times of idle bus, with timeout to avoid hanging if a
+  // device (e.g. a TV going to standby) holds the bus low.
   unsigned i = 0;
+  uint64_t idle_start = time_us_64();
   while (i < 7) {
     busy_wait_us(2400);
     if (gpio_get(cec_gpio)) {
@@ -365,6 +372,7 @@ static bool cec_frame_send_raw(const uint8_t *msg, uint8_t len) {
     } else {
       i = 0;
     }
+    if (time_us_64() - idle_start > 50000) break;
   }
 
   // Disable RX while transmitting
@@ -372,6 +380,7 @@ static bool cec_frame_send_raw(const uint8_t *msg, uint8_t len) {
 
   tx.done = false;
   tx.ack = false;
+  tx.broadcast = is_broadcast;
   tx.byte = 0;
   tx.bit = 7;
   tx.start = 0;

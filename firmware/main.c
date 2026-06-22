@@ -10,6 +10,7 @@
  *   PC -> Pico:
  *     CMD:PWR_ON
  *     CMD:PWR_OFF
+ *     CMD:PA           (query physical address)
  *     CMD:PING
  *
  *   Pico -> PC:
@@ -29,6 +30,7 @@
 
 #include "pico/stdlib.h"
 #include "cec_transceiver.h"
+#include "ws2812.h"
 
 /* ---- CEC protocol constants (CEC 1.4b) -------------------------------- */
 
@@ -65,14 +67,12 @@
 #define PIN_DDC_SDA      5
 #define PIN_HPD          3   /* optional; wire via divider, see wiring doc */
 #define PIN_STATUS_LED  16   /* onboard WS2812, RP2040-Zero only.
-                               * Currently UNREFERENCED below -- no WS2812
-                               * driver exists yet (PIO or PWM+DMA), so
-                               * this define exists only to reserve GP16
-                               * and document the pin. It is intentionally
-                               * unused for now; an unused #define is not
-                               * a compile error in C, but don't mistake
-                               * its presence here for the LED actually
-                               * being driven. */
+                                * Driven by ws2812.c (PIO-based WS2812
+                                * driver). Colour conventions:
+                                *   Blue  = booting / EDID discovery
+                                *   Green = ready (normal operation)
+                                *   Red   = fatal error
+                                *   Yellow = TV standby detected */
 
 #define MAX_TX_RETRIES 5
 
@@ -130,10 +130,12 @@ static bool refresh_physical_address(void) {
     }
     g_my_pa = pa;
     send_ready_event(pa);
+    ws2812_set_hex(WS2812_GREEN);
 
     uint8_t la;
     if (!cec_claim_logical_address(g_my_pa, &la)) {
         send_event("ERROR:logical_addr_claim_failed");
+        ws2812_set_hex(WS2812_RED);
         return false;
     }
     g_my_logical_addr = la;
@@ -201,6 +203,7 @@ static void handle_incoming_frame(const cec_frame_t *f) {
             /* TV (or anything) broadcasting standby -- if it came from the
              * TV specifically, that's our trigger to suspend the PC. */
             if (f->initiator == CEC_LOGICAL_ADDR_TV) {
+                ws2812_set_hex(WS2812_YELLOW);
                 send_event("CEC_TV_STANDBY");
             }
             break;
@@ -208,6 +211,7 @@ static void handle_incoming_frame(const cec_frame_t *f) {
         case CEC_OPCODE_REPORT_POWER_STATUS:
             if (f->initiator == CEC_LOGICAL_ADDR_TV && f->param_len >= 1) {
                 if (f->params[0] == CEC_POWER_STATUS_ON) {
+                    ws2812_set_hex(WS2812_GREEN);
                     send_event("CEC_TV_ON");
                 }
             }
@@ -258,6 +262,12 @@ static void handle_command_line(char *line) {
         } else {
             send_nack("PWR_OFF", "cec_tx_failed");
         }
+    } else if (strcmp(cmd, "PA") == 0) {
+        if (g_my_pa != CEC_PA_UNKNOWN) {
+            send_ready_event(g_my_pa);
+        } else {
+            send_nack("PA", "pa_unknown");
+        }
     } else if (strcmp(cmd, "PING") == 0) {
         send_line("PONG");
     } else {
@@ -270,11 +280,13 @@ static void handle_command_line(char *line) {
 int main(void) {
     stdio_init_all();
 
+    /* Initialise the onboard WS2812 status LED */
+    ws2812_init(PIN_STATUS_LED);
+    ws2812_set_hex(WS2812_BLUE);  /* booting */
+
     if (!cec_transceiver_init(PIN_CEC, PIN_DDC_SCL, PIN_DDC_SDA, PIN_HPD)) {
-        /* Can't do much without the transceiver; blink-of-death would go
-         * here if you have an LED wired (pico-cec's RGB LED convention:
-         * solid red = crash/fatal). */
         send_event("ERROR:transceiver_init_failed");
+        ws2812_set_hex(WS2812_RED);
         while (1) {
             tight_loop_contents();
         }
@@ -284,7 +296,9 @@ int main(void) {
      * move the cable to any TV input and have it just work on next boot
      * without touching firmware or config -- the address comes fresh from
      * EDID every time, never hardcoded. */
-    refresh_physical_address();
+    if (!refresh_physical_address()) {
+        ws2812_set_hex(WS2812_RED);
+    }
 
     /* Send <Image View On> + <Active Source> at boot so the TV wakes and
      * switches to this input autonomously -- like a PS5, no PC command
@@ -292,6 +306,9 @@ int main(void) {
     if (!do_pwr_on()) {
         send_event("AUTO_POWER_ON_FAILED");
     }
+
+    /* If we made it this far without errors, show ready */
+    ws2812_set_hex(WS2812_GREEN);
 
     char line_buf[128];
     size_t line_len = 0;
