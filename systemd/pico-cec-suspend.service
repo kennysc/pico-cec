@@ -7,6 +7,7 @@ StopWhenUnneeded=yes
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/bin/pico-cec-ctl.py PWR_OFF
+ExecStartPost=/bin/sleep 2
 ExecStop=/usr/local/bin/pico-cec-ctl.py PWR_ON
 TimeoutStartSec=10
 TimeoutStopSec=10
