@@ -22,12 +22,19 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$SRC_DIR/bin"
 SYSTEMD_DIR="$SRC_DIR/systemd"
 
+# Determine the group that owns /dev/ttyACM* so we add picocec to the
+# right group, even if 'dialout' doesn't exist on this distro.
+TTY_GRP="$(stat -c '%G' /dev/ttyACM0 2>/dev/null || echo dialout)"
+if ! getent group "$TTY_GRP" &>/dev/null; then
+    groupadd "$TTY_GRP"
+fi
+
 echo "==> creating picocec system user"
 if ! id picocec &>/dev/null; then
     useradd --system --no-create-home --shell /usr/sbin/nologin \
-        --groups dialout picocec
+        --groups "$TTY_GRP" picocec
 else
-    usermod -aG dialout picocec
+    usermod -aG "$TTY_GRP" picocec
 fi
 
 echo "==> installing python deps into a dedicated venv (no rpm-ostree layering needed)"
