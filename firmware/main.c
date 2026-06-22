@@ -10,6 +10,7 @@
  *   PC -> Pico:
  *     CMD:PWR_ON
  *     CMD:PWR_OFF
+ *     CMD:DISCOVER_PA       (probe EDID/DDC and report result)
  *     CMD:PA                (query current physical address)
  *     CMD:SET_PA:X.X.X.X    (set PA, saved to flash, survives reboot)
  *     CMD:PING
@@ -167,7 +168,10 @@ static void send_ready_event(cec_physical_address_t pa) {
 static bool refresh_physical_address(void) {
     cec_physical_address_t pa = cec_discover_physical_address();
     if (pa == CEC_PA_UNKNOWN) {
-        send_event("ERROR:edid_read_failed");
+        char buf[96];
+        snprintf(buf, sizeof(buf), "ERROR:edid_read_failed:%s",
+                 cec_last_discovery_error());
+        send_event(buf);
         return false;
     }
     g_my_pa = pa;
@@ -304,6 +308,12 @@ static void handle_command_line(char *line) {
             send_ack("PWR_OFF");
         } else {
             send_nack("PWR_OFF", "cec_tx_failed");
+        }
+    } else if (strcmp(cmd, "DISCOVER_PA") == 0) {
+        if (refresh_physical_address()) {
+            send_ack("DISCOVER_PA");
+        } else {
+            send_nack("DISCOVER_PA", cec_last_discovery_error());
         }
     } else if (strcmp(cmd, "PA") == 0) {
         if (g_my_pa != CEC_PA_UNKNOWN) {

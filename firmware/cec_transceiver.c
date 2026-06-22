@@ -101,6 +101,7 @@ static struct {
 static uint ddc_scl_gpio;
 static uint ddc_sda_gpio;
 static uint hpd_gpio;
+static const char *last_discovery_error = "not_run";
 
 /* ---- Forward declarations --------------------------------------------- */
 
@@ -455,22 +456,39 @@ static uint16_t find_physical_address_in_block(const uint8_t *block, size_t len)
 static bool read_edid_block(i2c_inst_t *i2c, uint8_t *edid, size_t len) {
   int ret = i2c_read_timeout_us(i2c, EDID_I2C_ADDR, edid, len, false,
                                 EDID_I2C_TIMEOUT_US);
-  if (ret != (int)len) return false;
+  if (ret != (int)len) {
+    last_discovery_error = "i2c_read_timeout";
+    return false;
+  }
 
   uint16_t cksum = 0;
   for (size_t i = 0; i < len; i++) cksum += edid[i];
-  return (cksum & 0x00ff) == 0x00;
+  if ((cksum & 0x00ff) != 0x00) {
+    last_discovery_error = "bad_checksum";
+    return false;
+  }
+
+  return true;
 }
 
 static uint16_t edid_get_physical_address(i2c_inst_t *i2c) {
   uint8_t edid[EDID_I2C_READ_SIZE] = {0};
 
   if (!read_edid_block(i2c, edid, EDID_I2C_READ_SIZE)) return 0x0000;
-  if (memcmp(edid, edid_header, 8) != 0) return 0x0000;
-  if (edid[126] == 0x00) return 0x0000;  // no CTA extension
+  if (memcmp(edid, edid_header, 8) != 0) {
+    last_discovery_error = "bad_header";
+    return 0x0000;
+  }
+  if (edid[126] == 0x00) {
+    last_discovery_error = "no_cta_extension";
+    return 0x0000;
+  }
 
   uint8_t *cta = &edid[EDID_BLOCK_SIZE];
-  if (memcmp(cta, ctahdr, 2) != 0) return 0x0000;
+  if (memcmp(cta, ctahdr, 2) != 0) {
+    last_discovery_error = "bad_cta_header";
+    return 0x0000;
+  }
 
   for (uint8_t i = EDID_CTA_DBC_OFFSET; i < cta[EDID_CTA_DTD_START];) {
     uint8_t *db = &cta[i];
@@ -481,11 +499,13 @@ static uint16_t edid_get_physical_address(i2c_inst_t *i2c) {
     i += len + 1;
   }
 
+  last_discovery_error = "no_hdmi_vsdb";
   return 0x0000;
 }
 
 cec_physical_address_t cec_discover_physical_address(void) {
   i2c_inst_t *i2c = i2c0;
+  last_discovery_error = "ok";
 
   /* Unstick the I2C bus: if SDA is stuck low (e.g. from a previous
    * interrupted transaction), bit-bang up to 9 SCL pulses until SDA
@@ -535,7 +555,19 @@ cec_physical_address_t cec_discover_physical_address(void) {
   gpio_disable_pulls(ddc_scl_gpio);
   gpio_disable_pulls(ddc_sda_gpio);
 
-  return pa == 0x0000 ? CEC_PA_UNKNOWN : pa;
+  if (pa == 0x0000) {
+    if (strcmp(last_discovery_error, "ok") == 0) {
+      last_discovery_error = "pa_not_found";
+    }
+    return CEC_PA_UNKNOWN;
+  }
+
+  last_discovery_error = "ok";
+  return pa;
+}
+
+const char *cec_last_discovery_error(void) {
+  return last_discovery_error;
 }
 
 /* ---- API: logical address claiming ------------------------------------- */

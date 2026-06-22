@@ -90,6 +90,10 @@ bool cec_transceiver_init(uint cec_gpio, uint ddc_scl_gpio, uint ddc_sda_gpio,
  */
 cec_physical_address_t cec_discover_physical_address(void);
 
+/* Human-readable reason for the most recent cec_discover_physical_address()
+ * failure. Returns "ok" after a successful discovery. */
+const char *cec_last_discovery_error(void);
+
 /*
  * --- Logical address claiming ------------------------------------------
  *

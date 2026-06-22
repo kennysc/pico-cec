@@ -27,6 +27,15 @@ picocom -b 115200 /dev/ttyACM0
 Type commands blindly (no echo) — press Enter, then type `CMD:PING`, press
 Enter. Expect `PONG` back.
 
+For EDID/DDC probing without changing the saved PA, use:
+
+```bash
+CMD:DISCOVER_PA
+```
+
+Expect either `ACK:DISCOVER_PA` plus `EVT:READY:PA=...`, or
+`NACK:DISCOVER_PA:<reason>` / `EVT:ERROR:edid_read_failed:<reason>`.
+
 On replug/reset you should see lines like:
 ```
 EVT:READY:PA=1.0.0.0
@@ -66,8 +75,9 @@ Without the daemon or PC-side install, you can:
 
 1. Connect serial terminal
 2. Type `CMD:PING` — expect `PONG`
-3. Type `CMD:PWR_ON` — expect `ACK:PWR_ON` and TV should wake
-4. Type `CMD:PWR_OFF` — expect `ACK:PWR_OFF`
+3. Type `CMD:DISCOVER_PA` — expect `ACK:DISCOVER_PA` or a specific EDID failure reason
+4. Type `CMD:PWR_ON` — expect `ACK:PWR_ON` and TV should wake
+5. Type `CMD:PWR_OFF` — expect `ACK:PWR_OFF`
 
 If `PING` works but `PWR_ON` doesn't, the CEC hardware connection is the issue. If `PING` fails, the firmware is stuck or crashed — check boot messages.
 
