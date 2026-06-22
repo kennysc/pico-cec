@@ -58,7 +58,7 @@ If no output at all, check:
 - Another process owns the port — `sudo lsof /dev/ttyACM0`
 
 ### TV doesn't turn on (AUTO_POWER_ON_FAILED or ERROR)
-- **EDID read failed** (`ERROR:edid_read_failed`) — DDC wiring issue or HDMI not connected. Check GP4 (SCL) and GP5 (SDA) connections to HDMI pins 15 and 16. Verify GND is connected (HDMI pin 17). Confirm the HDMI cable is plugged into both the breakout board and the TV.
+- **EDID read failed** (`ERROR:edid_read_failed:*`) — do not assume this is only a wiring issue. On the tested hardware, Linux could read the TV EDID while direct RP2040 GP4/GP5 access still failed because HDMI DDC idled at about 5.1V. If you want to retry EDID discovery, put a bidirectional I2C level shifter between HDMI pins 15/16 and GP4/GP5 first.
 - **CEC TX failed** (`NACK:PWR_ON:cec_tx_failed`) — CEC bus issue. Check GP2 connection to HDMI pin 13. Does the TV support CEC? Is CEC enabled in the TV settings? Also can be a secondary symptom of EDID failure (no physical address → can't send valid CEC frames).
 - **No EVT:READY** — the Pico never resolved a physical address. Same DDC wiring or HDMI connection suspect.
 
@@ -91,7 +91,7 @@ If `PING` works but `PWR_ON` doesn't, the CEC hardware connection is the issue. 
 | 17 | GND | GND | 0V — continuity to Pico GND |
 | 19 | HPD (optional) | GP3 (via divider) | Check with TV connected |
 
-No level shifters needed for CEC/DDC (open-drain, Pico pulls low only). HPD needs 10k/20k divider if wired — it can be 5V.
+No level shifter is needed for CEC on GP2. HDMI DDC on pins 15/16 should be treated as a 5V bus; use a bidirectional I2C level shifter before connecting it to GP4/GP5 if you want EDID discovery.
 
 ## Hardware checklist
 

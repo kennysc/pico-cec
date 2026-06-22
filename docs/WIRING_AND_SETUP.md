@@ -27,8 +27,8 @@ onboard flash, or the crystal.
 | HDMI pin | Signal | RP2040-Zero GPIO | Notes |
 |---|---|---|---|---|
 | 13 | CEC | GP2 | Open-drain; **requires 10kΩ pull-up to 3.3V** (TV-side pull-up may not pass through breakout board) |
-| 15 | DDC clock (SCL) | GP4 (I2C0 SCL) | Open-drain, 5V nominal — **requires 10kΩ pull-up to 5V**. RP2040 GPIOs are informally 5V-tolerant in open-drain config (per gkoh/pico-cec), not formally rated 5V-safe |
-| 16 | DDC data (SDA) | GP5 (I2C0 SDA) | Same as SCL — **requires 10kΩ pull-up to 5V** |
+| 15 | DDC clock (SCL) | GP4 (through bidirectional I2C level shifter) | HDMI DDC idles at 5V. Do not wire directly to RP2040 GPIO if you want to retry EDID discovery. |
+| 16 | DDC data (SDA) | GP5 (through bidirectional I2C level shifter) | Same as SCL — use the second channel of the same level shifter. |
 | 17 | GND | GND | **Must** be tied — common reference for everything else |
 | 19 (optional) | HPD | GP3 | **Needs a resistor divider** (e.g. 10k/20k) — HPD can be driven to 5V on some sources unlike CEC/DDC |
 | — | Status LED (optional) | GP16 | **Reserved on this board** — hardwired on-board to the onboard WS2812 (NeoPixel) RGB LED's DIN. Don't wire anything external here. |
@@ -44,19 +44,10 @@ HDMI breakout                    RP2040-Zero
                │
 pin 13 (CEC) ──┴──────────────────GP2
 
-              +5V (from HDMI pin 18)
-               │
-              ┌┴┐ 10kΩ
-              └┬┘
-               │
-pin 15 (DDC SCL) ─┴────────────────GP4
-
-              +5V (from HDMI pin 18)
-               │
-              ┌┴┐ 10kΩ
-              └┬┘
-               │
-pin 16 (DDC SDA) ─┴────────────────GP5
+pin 15 (DDC SCL) ───────────────────HV1  level shifter  LV1────────────────GP4
+pin 16 (DDC SDA) ───────────────────HV2                 LV2────────────────GP5
+pin 18 (+5V)    ───────────────────HV
+Pico 3V3        ───────────────────────────────────────LV
 
 pin 17 (GND) ──────────────────────GND
 
@@ -66,9 +57,7 @@ pin 19 (HPD, optional) ──[10k]──┬──GP3
                                  GND
 ```
 
-Pull-up resistor ratings: any 1/8W or larger through-hole or 0805+ SMD, 10kΩ ±5%.
-
-The +5V for DDC pull-ups can be taken from HDMI pin 18 (+5V power). Do not use the RP2040-Zero's onboard 3.3V or 5V pins for DDC pull-ups — they must reference the same 5V domain as the HDMI DDC bus.
+If you use a common BSS138-style bidirectional I2C level shifter, one module handles both DDC lines: one channel for SCL and one for SDA. Wire HDMI pin 18 to the shifter HV pin, Pico 3V3 to LV, and share ground with HDMI pin 17.
 
 The Pico sits **inline**: PC HDMI out → breakout board (male/female
 passthrough) → TV. CEC/DDC/GND are tapped off the passthrough; video
@@ -80,18 +69,18 @@ re-discovers physical address less proactively (still safe: it
 re-discovers automatically before any `PWR_ON` if its cached address is
 unknown/stale).
 
-## 3. Pull-up resistors
+## 3. DDC voltage levels
 
-CEC and DDC are open-drain signals that idle high via pull-ups. While the
-HDMI sink (TV) is supposed to provide these pull-ups internally, many
-breakout boards **do not pass them through** to the tapped lines, making
-external pull-ups necessary. See the schematic in §2: 10kΩ to 3.3V on CEC,
-10kΩ to 5V on each DDC line.
+CEC is open-drain and can still be wired directly to the Pico as described in
+§2. DDC is different: on the tested setup, SCL/SDA idle at about 5.1V and the
+TV's EDID is readable by Linux while the Pico's direct GP4/GP5 connection
+fails. Treat HDMI DDC as a 5V bus and insert a bidirectional I2C level shifter
+before trying EDID discovery again.
 
 The RP2040 drives these pins by switching GPIO direction (input =
 released/high, output-low = driven low) rather than actively driving a
-high level, so 3.3V logic and 5V bus pull-ups coexist safely without level
-shifters. This matches gkoh/pico-cec's field-proven wiring approach.
+high level, but RP2040 GPIO are not formally 5V-tolerant. Do not rely on
+direct 5V DDC pull-ups into GP4/GP5.
 
 HPD can be actively driven to 5V by some sources, hence the optional
 resistor divider (10k/20k) if you wire that pin.
