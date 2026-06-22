@@ -15,10 +15,8 @@ Requires=pico-cec-listener.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/pico-cec-ctl.py PWR_ON
-# Retry a couple of times with backoff: right at boot the Pico may still
-# be finishing its own EDID read / CEC bus settle, so an immediate PWR_ON
-# could race ahead of EVT:READY. pico-cec-ctl already blocks up to ~8s for
-# an ACK per call; this wraps that in a couple of outer attempts too.
+# Small startup delay: give the listener and USB serial path a moment to
+# settle before the initial PWR_ON.
 ExecStartPre=/bin/sleep 2
 
 [Install]

@@ -195,7 +195,7 @@ class PicoLink:
             cmd = parts[1] if len(parts) > 1 else ""
             detail = parts[2] if len(parts) > 2 else ""
         else:
-            status, detail = "ACK", ""
+            status, detail = text, ""
 
         with self._pending_lock:
             reply_q = self._pending.pop(cmd, None)
@@ -211,7 +211,7 @@ class PicoLink:
 #
 # Wire format: single line JSON in, single line JSON out.
 #   request:  {"cmd": "PWR_ON"}
-#   response: {"status": "ACK", "detail": ""}
+#   response: {"status": "ACK"|"PONG", "detail": ""}
 # ---------------------------------------------------------------------------
 
 def run_control_socket(link: PicoLink):
