@@ -77,6 +77,7 @@ static void config_save_pa(cec_physical_address_t pa) {
 #define CEC_OPCODE_STANDBY              0x36
 #define CEC_OPCODE_IMAGE_VIEW_ON        0x04
 #define CEC_OPCODE_ACTIVE_SOURCE        0x82
+#define CEC_OPCODE_SET_STREAM_PATH      0x86
 #define CEC_OPCODE_REPORT_POWER_STATUS  0x90
 #define CEC_OPCODE_GIVE_DEVICE_POWER_STATUS 0x8F
 
@@ -203,6 +204,17 @@ static bool do_pwr_on(void) {
     if (r1 != CEC_TX_OK) {
         return false;
     }
+
+    /* <Set Stream Path> asks the TV to switch to the configured physical
+     * address explicitly. Some TVs honor this more consistently than
+     * <Active Source> alone when another input is currently selected. */
+    f.initiator = g_my_logical_addr;
+    f.destination = CEC_LOGICAL_ADDR_BROADCAST;
+    f.opcode = CEC_OPCODE_SET_STREAM_PATH;
+    f.params[0] = (g_my_pa >> 8) & 0xFF;
+    f.params[1] = g_my_pa & 0xFF;
+    f.param_len = 2;
+    (void)cec_transmit(&f, MAX_TX_RETRIES);
 
     /* <Active Source> broadcast carrying our current configured physical
      * address. In the recommended setup this is the persisted static PA
