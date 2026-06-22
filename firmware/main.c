@@ -114,11 +114,14 @@ static void config_save_pa(cec_physical_address_t pa) {
                                 *   Yellow = TV standby detected */
 
 #define MAX_TX_RETRIES 5
+#define TV_POLL_INTERVAL_US (15 * 1000 * 1000) /* 15 seconds */
 
 /* ---- Global state ------------------------------------------------------ */
 
 static cec_physical_address_t g_my_pa = CEC_PA_UNKNOWN;
 static uint8_t g_my_logical_addr = CEC_LOGICAL_ADDR_BROADCAST; /* invalid until claimed */
+static uint64_t g_last_tv_poll_us = 0;
+static enum tv_status_t { TV_UNKNOWN, TV_ON, TV_OFF } g_tv_status = TV_UNKNOWN;
 
 /* ---- Serial helpers ------------------------------------------------------ */
 
@@ -235,7 +238,8 @@ static void handle_incoming_frame(const cec_frame_t *f) {
         case CEC_OPCODE_STANDBY:
             /* TV (or anything) broadcasting standby -- if it came from the
              * TV specifically, that's our trigger to suspend the PC. */
-            if (f->initiator == CEC_LOGICAL_ADDR_TV) {
+            if (f->initiator == CEC_LOGICAL_ADDR_TV && g_tv_status != TV_OFF) {
+                g_tv_status = TV_OFF;
                 ws2812_set_hex(WS2812_YELLOW);
                 send_event("CEC_TV_STANDBY");
             }
@@ -243,9 +247,14 @@ static void handle_incoming_frame(const cec_frame_t *f) {
 
         case CEC_OPCODE_REPORT_POWER_STATUS:
             if (f->initiator == CEC_LOGICAL_ADDR_TV && f->param_len >= 1) {
-                if (f->params[0] == CEC_POWER_STATUS_ON) {
+                if (f->params[0] == CEC_POWER_STATUS_ON && g_tv_status != TV_ON) {
+                    g_tv_status = TV_ON;
                     ws2812_set_hex(WS2812_GREEN);
                     send_event("CEC_TV_ON");
+                } else if (f->params[0] == CEC_POWER_STATUS_STANDBY && g_tv_status != TV_OFF) {
+                    g_tv_status = TV_OFF;
+                    ws2812_set_hex(WS2812_YELLOW);
+                    send_event("CEC_TV_STANDBY");
                 }
             }
             break;
@@ -285,6 +294,7 @@ static void handle_command_line(char *line) {
 
     if (strcmp(cmd, "PWR_ON") == 0) {
         if (do_pwr_on()) {
+            g_tv_status = TV_ON;
             send_ack("PWR_ON");
         } else {
             send_nack("PWR_ON", "cec_tx_failed");
@@ -368,7 +378,9 @@ int main(void) {
     /* Send <Image View On> + <Active Source> at boot so the TV wakes and
      * switches to this input autonomously -- like a PS5, no PC command
      * needed. */
-    if (!do_pwr_on()) {
+    if (do_pwr_on()) {
+        g_tv_status = TV_ON;
+    } else {
         send_event("AUTO_POWER_ON_FAILED");
     }
 
@@ -396,6 +408,26 @@ int main(void) {
             g_my_pa = CEC_PA_UNKNOWN;
         }
         last_hpd = hpd;
+
+        /* Periodically poll the TV's power status. Many TVs don't send
+         * a CEC <Standby> when powered off with the remote, so we can't
+         * rely on that alone. If the TV doesn't ACK our poll, it's off. */
+        uint64_t now_us = time_us_64();
+        if (now_us - g_last_tv_poll_us > TV_POLL_INTERVAL_US) {
+            g_last_tv_poll_us = now_us;
+            cec_frame_t poll = {0};
+            poll.initiator = g_my_logical_addr;
+            poll.destination = CEC_LOGICAL_ADDR_TV;
+            poll.opcode = CEC_OPCODE_GIVE_DEVICE_POWER_STATUS;
+            poll.param_len = 0;
+            if (cec_transmit(&poll, 2) != CEC_TX_OK) {
+                if (g_tv_status != TV_OFF) {
+                    g_tv_status = TV_OFF;
+                    ws2812_set_hex(WS2812_YELLOW);
+                    send_event("CEC_TV_STANDBY");
+                }
+            }
+        }
 
         /* Non-blocking-ish line read from USB serial. getchar_timeout_us
          * keeps this loop responsive to CEC RX above rather than blocking
