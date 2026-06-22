@@ -20,8 +20,8 @@ Description=Pico CEC: TV standby on shutdown
 DefaultDependencies=no
 Before=shutdown.target
 Conflicts=shutdown.target
+Wants=pico-cec-listener.service
 After=pico-cec-listener.service
-Requires=pico-cec-listener.service
 
 [Service]
 Type=oneshot
