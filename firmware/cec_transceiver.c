@@ -34,7 +34,7 @@
 #define EDID_I2C_RETRIES      3
 #define EDID_CTA_DTD_START    0x02
 #define EDID_CTA_DBC_OFFSET   0x04
-#define I2C_MASTER_FREQUENCY  (50 * 1000)
+#define DDC_BIT_DELAY_US      10
 
 /* ---- RX state machine states ------------------------------------------ */
 
@@ -454,44 +454,155 @@ static uint16_t find_physical_address_in_block(const uint8_t *block, size_t len)
   return 0x0000;
 }
 
-static bool read_edid_block(i2c_inst_t *i2c, uint8_t offset, uint8_t *edid) {
-  for (int attempt = 0; attempt < EDID_I2C_RETRIES; attempt++) {
-    uint8_t ptr = offset;
-    int ret = i2c_write_timeout_us(i2c, EDID_I2C_ADDR, &ptr, 1, true,
-                                   EDID_I2C_TIMEOUT_US);
-    if (ret != 1) {
-      ret = i2c_write_timeout_us(i2c, EDID_I2C_ADDR, &ptr, 1, false,
-                                 EDID_I2C_TIMEOUT_US);
-    }
+static inline void ddc_scl_low(void) {
+  gpio_set_dir(ddc_scl_gpio, GPIO_OUT);
+  gpio_put(ddc_scl_gpio, 0);
+}
 
-    if (ret != 1) {
-      /* Some sinks NACK the offset write for block 0 but still answer a
-       * plain sequential read starting at byte 0. Try that path before
-       * giving up entirely. */
-      if (offset == 0x00) {
-        ret = i2c_read_timeout_us(i2c, EDID_I2C_ADDR, edid, EDID_BLOCK_SIZE,
-                                  false, EDID_I2C_TIMEOUT_US);
-        if (ret == EDID_BLOCK_SIZE) {
-          uint16_t cksum = 0;
-          for (size_t i = 0; i < EDID_BLOCK_SIZE; i++) cksum += edid[i];
-          if ((cksum & 0x00ff) == 0x00) {
-            return true;
-          }
-          last_discovery_error = "bad_checksum";
-        } else {
-          last_discovery_error = "i2c_read_timeout";
-        }
-      } else {
-        last_discovery_error = "i2c_set_offset_failed";
+static inline void ddc_scl_release(void) {
+  gpio_set_dir(ddc_scl_gpio, GPIO_IN);
+}
+
+static inline void ddc_sda_low(void) {
+  gpio_set_dir(ddc_sda_gpio, GPIO_OUT);
+  gpio_put(ddc_sda_gpio, 0);
+}
+
+static inline void ddc_sda_release(void) {
+  gpio_set_dir(ddc_sda_gpio, GPIO_IN);
+}
+
+static bool ddc_wait_scl_high(void) {
+  uint64_t start = time_us_64();
+  while (!gpio_get(ddc_scl_gpio)) {
+    if (time_us_64() - start > EDID_I2C_TIMEOUT_US) {
+      last_discovery_error = "scl_stuck_low";
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool ddc_wait_sda_high(void) {
+  uint64_t start = time_us_64();
+  while (!gpio_get(ddc_sda_gpio)) {
+    if (time_us_64() - start > EDID_I2C_TIMEOUT_US) {
+      last_discovery_error = "sda_stuck_low";
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool ddc_clock_pulse(void) {
+  ddc_scl_release();
+  if (!ddc_wait_scl_high()) return false;
+  sleep_us(DDC_BIT_DELAY_US);
+  ddc_scl_low();
+  sleep_us(DDC_BIT_DELAY_US);
+  return true;
+}
+
+static bool ddc_start(void) {
+  ddc_sda_release();
+  ddc_scl_release();
+  if (!ddc_wait_sda_high() || !ddc_wait_scl_high()) return false;
+  sleep_us(DDC_BIT_DELAY_US);
+  ddc_sda_low();
+  sleep_us(DDC_BIT_DELAY_US);
+  ddc_scl_low();
+  sleep_us(DDC_BIT_DELAY_US);
+  return true;
+}
+
+static bool ddc_stop(void) {
+  ddc_sda_low();
+  sleep_us(DDC_BIT_DELAY_US);
+  ddc_scl_release();
+  if (!ddc_wait_scl_high()) return false;
+  sleep_us(DDC_BIT_DELAY_US);
+  ddc_sda_release();
+  if (!ddc_wait_sda_high()) return false;
+  sleep_us(DDC_BIT_DELAY_US);
+  return true;
+}
+
+static bool ddc_write_byte(uint8_t byte, bool *acked) {
+  for (int bit = 7; bit >= 0; bit--) {
+    if (byte & (1u << bit)) {
+      ddc_sda_release();
+    } else {
+      ddc_sda_low();
+    }
+    sleep_us(DDC_BIT_DELAY_US);
+    if (!ddc_clock_pulse()) return false;
+  }
+
+  ddc_sda_release();
+  sleep_us(DDC_BIT_DELAY_US);
+  ddc_scl_release();
+  if (!ddc_wait_scl_high()) return false;
+  sleep_us(DDC_BIT_DELAY_US);
+  *acked = !gpio_get(ddc_sda_gpio);
+  ddc_scl_low();
+  sleep_us(DDC_BIT_DELAY_US);
+  return true;
+}
+
+static bool ddc_read_byte(uint8_t *byte, bool ack) {
+  uint8_t value = 0;
+  ddc_sda_release();
+
+  for (int bit = 7; bit >= 0; bit--) {
+    ddc_scl_release();
+    if (!ddc_wait_scl_high()) return false;
+    sleep_us(DDC_BIT_DELAY_US);
+    if (gpio_get(ddc_sda_gpio)) value |= (1u << bit);
+    ddc_scl_low();
+    sleep_us(DDC_BIT_DELAY_US);
+  }
+
+  if (ack) {
+    ddc_sda_low();
+  } else {
+    ddc_sda_release();
+  }
+  sleep_us(DDC_BIT_DELAY_US);
+  if (!ddc_clock_pulse()) return false;
+  ddc_sda_release();
+  *byte = value;
+  return true;
+}
+
+static bool read_edid_block(uint8_t offset, uint8_t *edid) {
+  for (int attempt = 0; attempt < EDID_I2C_RETRIES; attempt++) {
+    bool acked = false;
+    bool ok = ddc_start() &&
+              ddc_write_byte((EDID_I2C_ADDR << 1) | 0u, &acked) && acked &&
+              ddc_write_byte(offset, &acked) && acked &&
+              ddc_start() &&
+              ddc_write_byte((EDID_I2C_ADDR << 1) | 1u, &acked) && acked;
+
+    if (!ok) {
+      if (strcmp(last_discovery_error, "ok") == 0) {
+        last_discovery_error = acked ? "ddc_start_failed" : "i2c_set_offset_failed";
       }
+      ddc_stop();
       sleep_ms(10);
       continue;
     }
 
-    ret = i2c_read_timeout_us(i2c, EDID_I2C_ADDR, edid, EDID_BLOCK_SIZE,
-                              false, EDID_I2C_TIMEOUT_US);
-    if (ret != EDID_BLOCK_SIZE) {
-      last_discovery_error = "i2c_read_timeout";
+    ok = true;
+    for (size_t i = 0; i < EDID_BLOCK_SIZE; i++) {
+      if (!ddc_read_byte(&edid[i], i + 1 < EDID_BLOCK_SIZE)) {
+        last_discovery_error = "i2c_read_timeout";
+        ok = false;
+        break;
+      }
+    }
+
+    if (!ddc_stop()) ok = false;
+    if (!ok) {
       sleep_ms(10);
       continue;
     }
@@ -511,9 +622,10 @@ static bool read_edid_block(i2c_inst_t *i2c, uint8_t offset, uint8_t *edid) {
 }
 
 static uint16_t edid_get_physical_address(i2c_inst_t *i2c) {
+  (void)i2c;
   uint8_t edid[EDID_I2C_READ_SIZE] = {0};
 
-  if (!read_edid_block(i2c, 0x00, edid)) return 0x0000;
+  if (!read_edid_block(0x00, edid)) return 0x0000;
   if (memcmp(edid, edid_header, 8) != 0) {
     last_discovery_error = "bad_header";
     return 0x0000;
@@ -523,7 +635,7 @@ static uint16_t edid_get_physical_address(i2c_inst_t *i2c) {
     return 0x0000;
   }
 
-  if (!read_edid_block(i2c, 0x80, &edid[EDID_BLOCK_SIZE])) return 0x0000;
+  if (!read_edid_block(0x80, &edid[EDID_BLOCK_SIZE])) return 0x0000;
 
   uint8_t *cta = &edid[EDID_BLOCK_SIZE];
   if (memcmp(cta, ctahdr, 2) != 0) {
@@ -545,7 +657,6 @@ static uint16_t edid_get_physical_address(i2c_inst_t *i2c) {
 }
 
 cec_physical_address_t cec_discover_physical_address(void) {
-  i2c_inst_t *i2c = i2c0;
   last_discovery_error = "ok";
 
   /* Unstick the I2C bus: if SDA is stuck low (e.g. from a previous
@@ -569,15 +680,13 @@ cec_physical_address_t cec_discover_physical_address(void) {
   gpio_put(ddc_scl_gpio, 1); sleep_ms(1);
   gpio_put(ddc_sda_gpio, 1); sleep_ms(1);
 
-  /* Now hand pins to I2C peripheral */
-  i2c_init(i2c, I2C_MASTER_FREQUENCY);
-  gpio_set_function(ddc_scl_gpio, GPIO_FUNC_I2C);
-  gpio_set_function(ddc_sda_gpio, GPIO_FUNC_I2C);
-  gpio_pull_up(ddc_scl_gpio);
-  gpio_pull_up(ddc_sda_gpio);
+  gpio_set_function(ddc_scl_gpio, GPIO_FUNC_SIO);
+  gpio_set_function(ddc_sda_gpio, GPIO_FUNC_SIO);
+  ddc_scl_release();
+  ddc_sda_release();
   sleep_ms(10);
 
-  uint16_t pa = edid_get_physical_address(i2c);
+  uint16_t pa = edid_get_physical_address(NULL);
 
   /* Release DDC pins back to high-impedance so the GPU can talk to the
    * TV's EDID ROM. Do NOT call i2c_deinit -- it corrupts the peripheral
