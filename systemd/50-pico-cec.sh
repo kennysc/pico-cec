@@ -25,9 +25,9 @@ LOG_TAG="pico-cec-sleep-hook"
 LOG_FILE=/run/pico-cec/sleep-hook.log
 
 log() {
-    /usr/bin/mkdir -p /run/pico-cec
-    /usr/bin/printf '%s %s\n' "$(/usr/bin/date --iso-8601=seconds)" "$*" >> "$LOG_FILE"
     /usr/bin/logger -t "$LOG_TAG" "$*"
+    /usr/bin/mkdir -p /run/pico-cec 2>/dev/null || true
+    /usr/bin/printf '%s %s\n' "$(/usr/bin/date --iso-8601=seconds)" "$*" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 case "$ACTION/$TARGET" in
