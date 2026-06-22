@@ -3,20 +3,14 @@
 # Fires once on system boot (cold boot, not resume -- resume is handled by
 # the systemd-sleep hook) to wake the TV and switch it to this PC's input.
 #
-# Bound to graphical-session.target rather than multi-user.target /
-# default.target: on a HTPC you want this to happen when the desktop
-# session is actually up and about to display something, not the instant
-# the kernel finishes booting (which on Bazzite/GNOME can be well before
-# Plymouth hands off to the compositor). If you boot straight to a TTY or
-# use a different DE/WM that doesn't activate graphical-session.target,
-# switch WantedBy to graphical.target instead -- see the alternate line
-# commented below.
+# Bound to graphical.target: on a HTPC this fires when the display manager
+# / desktop is ready. (graphical-session.target is a user-session target not
+# available to system units.)
 
 [Unit]
 Description=Pico CEC: TV power-on at boot
-After=pico-cec-listener.service graphical-session.target
+After=pico-cec-listener.service graphical.target
 Requires=pico-cec-listener.service
-Wants=graphical-session.target
 
 [Service]
 Type=oneshot
@@ -28,6 +22,4 @@ ExecStart=/usr/local/bin/pico-cec-ctl.py PWR_ON
 ExecStartPre=/bin/sleep 2
 
 [Install]
-WantedBy=graphical-session.target
-# Alternative if not using a target that activates graphical-session.target:
-# WantedBy=graphical.target
+WantedBy=graphical.target
