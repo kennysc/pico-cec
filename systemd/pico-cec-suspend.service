@@ -8,8 +8,7 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/bin/pico-cec-ctl.py PWR_OFF
 ExecStartPost=/bin/sleep 2
-ExecStopPre=/bin/sleep 1
-ExecStop=/usr/local/bin/pico-cec-ctl.py PWR_ON
+ExecStop=/bin/sh -c 'sleep 2; /usr/local/bin/pico-cec-ctl.py PWR_ON; sleep 1; /usr/local/bin/pico-cec-ctl.py PWR_ON'
 TimeoutStartSec=10
 TimeoutStopSec=10
 
