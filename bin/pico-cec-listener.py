@@ -79,6 +79,7 @@ class PicoLink:
         self.baud = baud
         self.ser: serial.Serial | None = None
         self._write_q: "queue.Queue[tuple[str, queue.Queue]]" = queue.Queue()
+        self._command_lock = threading.Lock()
         self._pending_lock = threading.Lock()
         self._pending: dict[str, queue.Queue] = {}  # cmd -> reply queue
         self._last_physical_address: str | None = None
@@ -144,16 +145,17 @@ class PicoLink:
             reply_q.put(("NACK", str(e)))
 
     def send_command(self, cmd: str, timeout: float = COMMAND_TIMEOUT_S):
-        """Thread-safe: queue a command for the serial thread, block for reply."""
-        reply_q: queue.Queue = queue.Queue(maxsize=1)
-        self._write_q.put((cmd, reply_q))
-        try:
-            status, detail = reply_q.get(timeout=timeout)
-            return status, detail
-        except queue.Empty:
-            with self._pending_lock:
-                self._pending.pop(cmd, None)
-            return "TIMEOUT", f"no reply to {cmd} within {timeout}s"
+        """Serialize commands so reply matching stays one-at-a-time."""
+        with self._command_lock:
+            reply_q: queue.Queue = queue.Queue(maxsize=1)
+            self._write_q.put((cmd, reply_q))
+            try:
+                status, detail = reply_q.get(timeout=timeout)
+                return status, detail
+            except queue.Empty:
+                with self._pending_lock:
+                    self._pending.pop(cmd, None)
+                return "TIMEOUT", f"no reply to {cmd} within {timeout}s"
 
     def _handle_line(self, text: str):
         log.debug("<- %s", text)
@@ -220,7 +222,8 @@ def run_control_socket(link: PicoLink):
 
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     srv.bind(str(sock_path))
-    os.chmod(sock_path, 0o660)
+    # Allow local manual control commands without requiring root.
+    os.chmod(sock_path, 0o666)
     srv.listen(4)
     log.info("control socket listening at %s", sock_path)
 
