@@ -40,6 +40,7 @@ SERIAL_PORT = os.environ.get("PICO_CEC_PORT", "/dev/pico-cec")  # see udev rule
 BAUD_RATE = 115200
 RECONNECT_DELAY_S = 3.0
 COMMAND_TIMEOUT_S = 5.0  # how long to wait for ACK/NACK after sending a CMD
+SERIAL_READ_TIMEOUT_S = 0.1  # keep control commands low-latency for suspend
 
 CONTROL_SOCKET_PATH = "/run/pico-cec/control.sock"
 
@@ -105,7 +106,7 @@ class PicoLink:
 
     def _connect_and_pump(self):
         log.info("opening serial port %s @ %d", self.port, self.baud)
-        with serial.Serial(self.port, self.baud, timeout=1.0) as ser:
+        with serial.Serial(self.port, self.baud, timeout=SERIAL_READ_TIMEOUT_S) as ser:
             self.ser = ser
             # Drain any boot-time noise from the Pico
             ser.reset_input_buffer()
