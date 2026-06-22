@@ -390,7 +390,14 @@ static bool cec_frame_send_raw(const uint8_t *msg, uint8_t len) {
 
   add_alarm_at(from_us_since_boot(time_us_64()), cec_tx_alarm, NULL, true);
 
+  uint64_t tx_start = time_us_64();
   while (!tx.done) {
+    if (time_us_64() - tx_start > 200000) {
+      /* TX state machine hung (bus stuck or alarm lost) — force done. */
+      tx.done = true;
+      tx.ack  = false;
+      cec_release();
+    }
     tight_loop_contents();
   }
 
@@ -406,9 +413,12 @@ bool cec_transceiver_init(uint cec_gpio_arg, uint ddc_scl_gpio_arg,
   ddc_sda_gpio = ddc_sda_gpio_arg;
   hpd_gpio = hpd_gpio_arg;
 
-  // CEC pin: input with no pulls (bus is open-drain with external pull-up)
+  // CEC pin: input with weak internal pull-up. The external 10k to 3.3V
+  // is the primary pull-up; the internal (~50k) acts as a safety net if
+  // the TV cuts its own pull-up when entering standby (some TVs power off
+  // their HDMI section in standby, leaving the bus floating otherwise).
   gpio_init(cec_gpio);
-  gpio_disable_pulls(cec_gpio);
+  gpio_pull_up(cec_gpio);
   gpio_set_dir(cec_gpio, GPIO_IN);
 
   // HPD pin (optional)
@@ -477,24 +487,54 @@ static uint16_t edid_get_physical_address(i2c_inst_t *i2c) {
 cec_physical_address_t cec_discover_physical_address(void) {
   i2c_inst_t *i2c = i2c0;
 
-  // Init I2C on the DDC pins
-  i2c_init(i2c, I2C_MASTER_FREQUENCY);
-  gpio_set_function(ddc_sda_gpio, GPIO_FUNC_I2C);
-  gpio_set_function(ddc_scl_gpio, GPIO_FUNC_I2C);
-  gpio_pull_up(ddc_sda_gpio);
+  /* Unstick the I2C bus: if SDA is stuck low (e.g. from a previous
+   * interrupted transaction), bit-bang up to 9 SCL pulses until SDA
+   * goes high, then send a STOP condition. This must be done before
+   * handing the pins to the I2C peripheral. */
+  gpio_init(ddc_scl_gpio);
+  gpio_init(ddc_sda_gpio);
+  gpio_set_dir(ddc_scl_gpio, GPIO_OUT);
+  gpio_set_dir(ddc_sda_gpio, GPIO_IN);
   gpio_pull_up(ddc_scl_gpio);
-
-  // DDC reset (write zero byte to EDID address)
-  uint8_t zero = 0;
-  int ret = i2c_write_timeout_us(i2c, EDID_I2C_ADDR, &zero, 1, true,
-                                  EDID_I2C_TIMEOUT_US);
-  if (ret != 1) {
-    i2c_deinit(i2c);
-    return CEC_PA_UNKNOWN;
+  gpio_pull_up(ddc_sda_gpio);
+  for (int i = 0; i < 9; i++) {
+    gpio_put(ddc_scl_gpio, 0); sleep_ms(1);
+    gpio_put(ddc_scl_gpio, 1); sleep_ms(1);
+    if (gpio_get(ddc_sda_gpio)) break;
   }
+  /* STOP condition: SDA low → SCL high → SDA high */
+  gpio_set_dir(ddc_sda_gpio, GPIO_OUT);
+  gpio_put(ddc_sda_gpio, 0); sleep_ms(1);
+  gpio_put(ddc_scl_gpio, 1); sleep_ms(1);
+  gpio_put(ddc_sda_gpio, 1); sleep_ms(1);
+
+  /* Now hand pins to I2C peripheral */
+  i2c_init(i2c, I2C_MASTER_FREQUENCY);
+  gpio_set_function(ddc_scl_gpio, GPIO_FUNC_I2C);
+  gpio_set_function(ddc_sda_gpio, GPIO_FUNC_I2C);
+  gpio_pull_up(ddc_scl_gpio);
+  gpio_pull_up(ddc_sda_gpio);
+  sleep_ms(10);
+
+  /* Set EDID read pointer to byte 0. Many TV EDID EEPROMs are
+   * write-protected and will NACK this write -- ignore the return value
+   * and proceed with the read regardless. */
+  uint8_t zero = 0;
+  i2c_write_timeout_us(i2c, EDID_I2C_ADDR, &zero, 1, false,
+                       EDID_I2C_TIMEOUT_US);
 
   uint16_t pa = edid_get_physical_address(i2c);
-  i2c_deinit(i2c);
+
+  /* Release DDC pins back to high-impedance so the GPU can talk to the
+   * TV's EDID ROM. Do NOT call i2c_deinit -- it corrupts the peripheral
+   * state and prevents reinit from working on subsequent calls. */
+  gpio_set_function(ddc_scl_gpio, GPIO_FUNC_SIO);
+  gpio_set_function(ddc_sda_gpio, GPIO_FUNC_SIO);
+  gpio_set_dir(ddc_scl_gpio, GPIO_IN);
+  gpio_set_dir(ddc_sda_gpio, GPIO_IN);
+  gpio_disable_pulls(ddc_scl_gpio);
+  gpio_disable_pulls(ddc_sda_gpio);
+
   return pa == 0x0000 ? CEC_PA_UNKNOWN : pa;
 }
 

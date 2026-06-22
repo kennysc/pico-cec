@@ -143,14 +143,8 @@ static bool refresh_physical_address(void) {
 }
 
 static bool do_pwr_on(void) {
-    /* If we don't have a fresh physical address (e.g. cable was moved
-     * since last discovery), re-resolve now rather than trusting a stale
-     * value -- correctness here matters more than the extra ~tens of ms
-     * an EDID read costs. */
     if (g_my_pa == CEC_PA_UNKNOWN) {
-        if (!refresh_physical_address()) {
-            return false;
-        }
+        return false;
     }
 
     cec_frame_t f = {0};
@@ -280,9 +274,12 @@ static void handle_command_line(char *line) {
 int main(void) {
     stdio_init_all();
 
-    /* Initialise the onboard WS2812 status LED */
+    /* Wait for USB serial to enumerate so the host can connect picocom
+     * before we attempt the EDID read. The LED pulses white briefly to
+     * signal "connect now", then goes blue when the window closes. */
     ws2812_init(PIN_STATUS_LED);
-    ws2812_set_hex(WS2812_BLUE);  /* booting */
+    sleep_ms(10);
+    ws2812_set_hex(WS2812_BLUE);   /* booting */
 
     if (!cec_transceiver_init(PIN_CEC, PIN_DDC_SCL, PIN_DDC_SDA, PIN_HPD)) {
         send_event("ERROR:transceiver_init_failed");
@@ -292,12 +289,19 @@ int main(void) {
         }
     }
 
-    /* Initial physical-address discovery at boot. This is what lets you
-     * move the cable to any TV input and have it just work on next boot
-     * without touching firmware or config -- the address comes fresh from
-     * EDID every time, never hardcoded. */
-    if (!refresh_physical_address()) {
+    /* Physical address is hardcoded -- DDC/EDID is not available because
+     * the GPU uses a DP-to-HDMI adapter that blocks DDC, and the TV is
+     * on HDMI port 1 giving physical address 1.0.0.0 = 0x1000.
+     * If the TV port changes, update this value. */
+    g_my_pa = 0x1000;
+    send_ready_event(g_my_pa);
+    ws2812_set_hex(WS2812_GREEN);
+    uint8_t la;
+    if (!cec_claim_logical_address(g_my_pa, &la)) {
+        send_event("ERROR:logical_addr_claim_failed");
         ws2812_set_hex(WS2812_RED);
+    } else {
+        g_my_logical_addr = la;
     }
 
     /* Send <Image View On> + <Active Source> at boot so the TV wakes and
