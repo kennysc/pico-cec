@@ -460,7 +460,30 @@ static bool read_edid_block(i2c_inst_t *i2c, uint8_t offset, uint8_t *edid) {
     int ret = i2c_write_timeout_us(i2c, EDID_I2C_ADDR, &ptr, 1, true,
                                    EDID_I2C_TIMEOUT_US);
     if (ret != 1) {
-      last_discovery_error = "i2c_set_offset_failed";
+      ret = i2c_write_timeout_us(i2c, EDID_I2C_ADDR, &ptr, 1, false,
+                                 EDID_I2C_TIMEOUT_US);
+    }
+
+    if (ret != 1) {
+      /* Some sinks NACK the offset write for block 0 but still answer a
+       * plain sequential read starting at byte 0. Try that path before
+       * giving up entirely. */
+      if (offset == 0x00) {
+        ret = i2c_read_timeout_us(i2c, EDID_I2C_ADDR, edid, EDID_BLOCK_SIZE,
+                                  false, EDID_I2C_TIMEOUT_US);
+        if (ret == EDID_BLOCK_SIZE) {
+          uint16_t cksum = 0;
+          for (size_t i = 0; i < EDID_BLOCK_SIZE; i++) cksum += edid[i];
+          if ((cksum & 0x00ff) == 0x00) {
+            return true;
+          }
+          last_discovery_error = "bad_checksum";
+        } else {
+          last_discovery_error = "i2c_read_timeout";
+        }
+      } else {
+        last_discovery_error = "i2c_set_offset_failed";
+      }
       sleep_ms(10);
       continue;
     }
