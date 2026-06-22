@@ -71,7 +71,9 @@ systemctl enable pico-cec-listener.service
 systemctl restart pico-cec-listener.service
 systemctl enable pico-cec-boot.service
 systemctl enable pico-cec-shutdown.service
-systemctl restart pico-cec-shutdown.service
+if ! systemctl is-active --quiet pico-cec-shutdown.service; then
+    systemctl start pico-cec-shutdown.service
+fi
 
 echo "==> done"
 echo
