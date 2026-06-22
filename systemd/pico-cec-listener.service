@@ -4,38 +4,17 @@
 # TV-standby events by suspending the system, and exposes a control socket
 # at /run/pico-cec/control.sock for the sleep/shutdown hooks to request
 # PWR_ON / PWR_OFF without fighting over the serial port.
-#
-# Runs as a dedicated unprivileged user with just enough capability to
-# call `systemctl suspend` via polkit (see the polkit rule installed
-# alongside this unit) and to access the udev-tagged serial device.
 
 [Unit]
 Description=Pico CEC bridge listener
 After=multi-user.target
-# Restart if the udev device appears/disappears (USB replug, Pico reset)
-# rather than only at boot.
 Wants=dev-pico\x2dcec.device
 After=dev-pico\x2dcec.device
 
 [Service]
 Type=simple
-User=picocec
-Group=picocec
 ExecStart=/usr/local/bin/pico-cec-listener.py
 Restart=always
 RestartSec=2
 RuntimeDirectory=pico-cec
 RuntimeDirectoryMode=0750
-
-# Hardening - this daemon only needs serial + unix socket + ability to
-# invoke systemctl suspend via polkit, nothing else.
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=/run/pico-cec
-DeviceAllow=/dev/pico-cec rw
-SupplementaryGroups=dialout
-
-[Install]
-WantedBy=multi-user.target
