@@ -10,7 +10,7 @@
  *   PC -> Pico:
  *     CMD:PWR_ON
  *     CMD:PWR_OFF
- *     CMD:DISCOVER_PA       (probe EDID/DDC and report result)
+ *     CMD:DISCOVER_PA       (experimental direct-serial EDID/DDC probe)
  *     CMD:PA                (query current physical address)
  *     CMD:SET_PA:X.X.X.X    (set PA, saved to flash, survives reboot)
  *     CMD:PING
@@ -160,10 +160,9 @@ static void send_ready_event(cec_physical_address_t pa) {
 /* ---- CEC actions -------------------------------------------------------- */
 
 /*
- * Re-resolve physical address via DDC/EDID. Call at boot and whenever we
- * suspect topology changed (HPD transition, or before a PWR_ON if it's
- * been a while) -- this is the mechanism that makes the adapter
- * port-agnostic rather than hardcoded to "HDMI1" etc.
+ * Experimental EDID/DDC rediscovery path. The normal boot and power-on flow
+ * uses the persisted/static PA; this helper is only exercised by the direct
+ * serial CMD:DISCOVER_PA debugging command.
  */
 static bool refresh_physical_address(void) {
     cec_physical_address_t pa = cec_discover_physical_address();
@@ -205,10 +204,9 @@ static bool do_pwr_on(void) {
         return false;
     }
 
-    /* <Active Source> broadcast carrying OUR physical address: this is
-     * the message that makes the TV switch its input to wherever we're
-     * actually plugged in -- no hardcoded port number anywhere, the
-     * address itself came from EDID discovery above. */
+    /* <Active Source> broadcast carrying our current configured physical
+     * address. In the recommended setup this is the persisted static PA
+     * (default 1.0.0.0 for HDMI 1). */
     f.initiator = g_my_logical_addr;
     f.destination = CEC_LOGICAL_ADDR_BROADCAST;
     f.opcode = CEC_OPCODE_ACTIVE_SOURCE;

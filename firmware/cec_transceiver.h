@@ -62,7 +62,8 @@ typedef uint16_t cec_physical_address_t;
  * --- Lifecycle -------------------------------------------------------
  */
 
-// Bring up PIO/IRQ machinery, GPIO config for CEC pin, I2C0 for DDC.
+// Bring up the CEC RX/TX state machines and remember the optional DDC/HPD
+// GPIO assignments used by the experimental discovery helpers.
 // hpd_gpio is optional: pass a valid GPIO if HPD is wired (see wiring
 // doc), or pass a sentinel value (e.g. 0xFF / CEC_HPD_NOT_WIRED) if not.
 // When not wired, cec_hpd_asserted() should always return true so callers
@@ -75,15 +76,14 @@ bool cec_transceiver_init(uint cec_gpio, uint ddc_scl_gpio, uint ddc_sda_gpio,
 /*
  * --- Physical address discovery (DDC/EDID) ----------------------------
  *
- * Reads EDID over DDC (I2C master, address 0x50) from whatever HDMI port
- * this adapter is currently inline with, locates the CEA extension block,
- * finds the HDMI Vendor-Specific Data Block (IEEE OUI 00-0C-03), and
+ * Experimental direct-serial-only EDID/DDC probe. Reads EDID from whatever
+ * HDMI port this adapter is currently inline with, locates the CEA extension
+ * block, finds the HDMI Vendor-Specific Data Block (IEEE OUI 00-0C-03), and
  * extracts the 16-bit physical address field.
  *
- * This is what makes the adapter port-agnostic: call it fresh after any
- * HPD transition (cable moved, TV power cycled) rather than caching a
- * value across sessions, since the correct address is a property of
- * *which physical port* the cable is in, not a fixed adapter setting.
+ * The normal runtime path does not depend on this today; the recommended
+ * hardware setup uses a persisted/static physical address unless you add the
+ * required DDC level shifting and explicitly retry EDID discovery.
  *
  * Returns CEC_PA_UNKNOWN on read/parse failure (e.g. TV not responding
  * on DDC yet, EDID malformed, no HDMI VSDB present).
@@ -135,10 +135,8 @@ bool cec_receive_poll(cec_frame_t *out_frame);
 /*
  * --- HPD (optional) -------------------------------------------------------
  *
- * If HPD is wired (see wiring doc), this reports current hotplug state
- * and can be used to know when to re-run cec_discover_physical_address().
- * If HPD is not wired, always returns true and physical address should
- * instead be re-discovered periodically or on CEC bus errors.
+ * If HPD is wired (see wiring doc), this reports current hotplug state for
+ * future discovery experiments. If HPD is not wired, always returns true.
  */
 bool cec_hpd_asserted(void);
 

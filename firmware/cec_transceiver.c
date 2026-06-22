@@ -7,7 +7,7 @@
  *
  * CEC RX: edge-interrupt driven state machine
  * CEC TX: alarm-interrupt (hardware timer) driven state machine
- * DDC/EDID: I2C master read from HDMI sink at address 0x50
+ * DDC/EDID: experimental bit-banged DDC reader for direct-serial probing
  *
  * Designed for bare-metal (no FreeRTOS) — task notifications replaced with
  * flags polled from the main loop.
@@ -17,7 +17,6 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
-#include "hardware/i2c.h"
 #include "hardware/irq.h"
 #include "hardware/sync.h"
 #include "hardware/timer.h"
@@ -621,8 +620,7 @@ static bool read_edid_block(uint8_t offset, uint8_t *edid) {
   return false;
 }
 
-static uint16_t edid_get_physical_address(i2c_inst_t *i2c) {
-  (void)i2c;
+static uint16_t edid_get_physical_address(void) {
   uint8_t edid[EDID_I2C_READ_SIZE] = {0};
 
   if (!read_edid_block(0x00, edid)) return 0x0000;
@@ -686,11 +684,10 @@ cec_physical_address_t cec_discover_physical_address(void) {
   ddc_sda_release();
   sleep_ms(10);
 
-  uint16_t pa = edid_get_physical_address(NULL);
+  uint16_t pa = edid_get_physical_address();
 
-  /* Release DDC pins back to high-impedance so the GPU can talk to the
-   * TV's EDID ROM. Do NOT call i2c_deinit -- it corrupts the peripheral
-   * state and prevents reinit from working on subsequent calls. */
+  /* Release DDC pins back to high-impedance so normal static-PA wiring can
+   * leave these pins disconnected or safely parked when discovery is unused. */
   gpio_set_function(ddc_scl_gpio, GPIO_FUNC_SIO);
   gpio_set_function(ddc_sda_gpio, GPIO_FUNC_SIO);
   gpio_set_dir(ddc_scl_gpio, GPIO_IN);
