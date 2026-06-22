@@ -31,9 +31,10 @@
 #define EDID_I2C_TIMEOUT_US   (100 * 1000)
 #define EDID_I2C_ADDR         0x50
 #define EDID_I2C_READ_SIZE    (EDID_BLOCK_SIZE * 2)
+#define EDID_I2C_RETRIES      3
 #define EDID_CTA_DTD_START    0x02
 #define EDID_CTA_DBC_OFFSET   0x04
-#define I2C_MASTER_FREQUENCY  (100 * 1000)
+#define I2C_MASTER_FREQUENCY  (50 * 1000)
 
 /* ---- RX state machine states ------------------------------------------ */
 
@@ -453,28 +454,43 @@ static uint16_t find_physical_address_in_block(const uint8_t *block, size_t len)
   return 0x0000;
 }
 
-static bool read_edid_block(i2c_inst_t *i2c, uint8_t *edid, size_t len) {
-  int ret = i2c_read_timeout_us(i2c, EDID_I2C_ADDR, edid, len, false,
-                                EDID_I2C_TIMEOUT_US);
-  if (ret != (int)len) {
-    last_discovery_error = "i2c_read_timeout";
-    return false;
+static bool read_edid_block(i2c_inst_t *i2c, uint8_t offset, uint8_t *edid) {
+  for (int attempt = 0; attempt < EDID_I2C_RETRIES; attempt++) {
+    uint8_t ptr = offset;
+    int ret = i2c_write_timeout_us(i2c, EDID_I2C_ADDR, &ptr, 1, true,
+                                   EDID_I2C_TIMEOUT_US);
+    if (ret != 1) {
+      last_discovery_error = "i2c_set_offset_failed";
+      sleep_ms(10);
+      continue;
+    }
+
+    ret = i2c_read_timeout_us(i2c, EDID_I2C_ADDR, edid, EDID_BLOCK_SIZE,
+                              false, EDID_I2C_TIMEOUT_US);
+    if (ret != EDID_BLOCK_SIZE) {
+      last_discovery_error = "i2c_read_timeout";
+      sleep_ms(10);
+      continue;
+    }
+
+    uint16_t cksum = 0;
+    for (size_t i = 0; i < EDID_BLOCK_SIZE; i++) cksum += edid[i];
+    if ((cksum & 0x00ff) != 0x00) {
+      last_discovery_error = "bad_checksum";
+      sleep_ms(10);
+      continue;
+    }
+
+    return true;
   }
 
-  uint16_t cksum = 0;
-  for (size_t i = 0; i < len; i++) cksum += edid[i];
-  if ((cksum & 0x00ff) != 0x00) {
-    last_discovery_error = "bad_checksum";
-    return false;
-  }
-
-  return true;
+  return false;
 }
 
 static uint16_t edid_get_physical_address(i2c_inst_t *i2c) {
   uint8_t edid[EDID_I2C_READ_SIZE] = {0};
 
-  if (!read_edid_block(i2c, edid, EDID_I2C_READ_SIZE)) return 0x0000;
+  if (!read_edid_block(i2c, 0x00, edid)) return 0x0000;
   if (memcmp(edid, edid_header, 8) != 0) {
     last_discovery_error = "bad_header";
     return 0x0000;
@@ -483,6 +499,8 @@ static uint16_t edid_get_physical_address(i2c_inst_t *i2c) {
     last_discovery_error = "no_cta_extension";
     return 0x0000;
   }
+
+  if (!read_edid_block(i2c, 0x80, &edid[EDID_BLOCK_SIZE])) return 0x0000;
 
   uint8_t *cta = &edid[EDID_BLOCK_SIZE];
   if (memcmp(cta, ctahdr, 2) != 0) {
@@ -535,13 +553,6 @@ cec_physical_address_t cec_discover_physical_address(void) {
   gpio_pull_up(ddc_scl_gpio);
   gpio_pull_up(ddc_sda_gpio);
   sleep_ms(10);
-
-  /* Set EDID read pointer to byte 0. Many TV EDID EEPROMs are
-   * write-protected and will NACK this write -- ignore the return value
-   * and proceed with the read regardless. */
-  uint8_t zero = 0;
-  i2c_write_timeout_us(i2c, EDID_I2C_ADDR, &zero, 1, false,
-                       EDID_I2C_TIMEOUT_US);
 
   uint16_t pa = edid_get_physical_address(i2c);
 
