@@ -136,6 +136,17 @@ pico-cec-ctl.py PWR_OFF    # TV should go to standby
 
 Check for `EVT:READY:PA=1.0.0.0` in the logs unless you changed the stored PA.
 
+## Current behavior
+
+| Trigger | Action sent | Expected TV result |
+|---------|-------------|--------------------|
+| PC boot reaches `graphical.target` | `PWR_ON` | TV powers on and switches to HDMI 1 |
+| PC suspend starts | `PWR_OFF` | TV goes to standby |
+| PC resumes | `PWR_ON` | TV powers on and switches back to HDMI 1 |
+| PC shutdown or reboot | `PWR_OFF` | TV goes to standby |
+| TV goes to standby via remote | listener calls `systemctl suspend` | PC suspends |
+| TV powers on via remote | none | PC stays asleep/off |
+
 ---
 
 ## Project layout

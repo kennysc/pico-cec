@@ -69,6 +69,9 @@ Normal — the GPU detects a display via HPD (HDMI pin 19). Not a bug.
 - The `pico-cec-listener.service` may not be running at boot time yet — check with `systemctl status pico-cec-listener`
 - Or the `pico-cec-boot.service` may have run before the Pico was ready — check logs: `journalctl -u pico-cec-boot.service`
 
+### `journalctl` still shows an old unit warning
+- If you still see the older `Unknown key 'StopWhenUnneeded' in section [Service]` line for `pico-cec-suspend.service`, that is a historical entry from before the unit file was fixed. Confirm the installed file with `systemctl cat pico-cec-suspend.service`. A reboot clears the stale warning from the current boot's logs.
+
 ## Testing the Pico in isolation
 
 Without the daemon or PC-side install, you can:
