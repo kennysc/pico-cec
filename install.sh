@@ -67,9 +67,11 @@ install -Dm755 "$SYSTEMD_DIR/50-pico-cec.sh" \
 
 echo "==> reloading systemd, enabling units"
 systemctl daemon-reload
-systemctl enable --now pico-cec-listener.service
+systemctl enable pico-cec-listener.service
+systemctl restart pico-cec-listener.service
 systemctl enable pico-cec-boot.service
-systemctl enable --now pico-cec-shutdown.service
+systemctl enable pico-cec-shutdown.service
+systemctl restart pico-cec-shutdown.service
 
 echo "==> done"
 echo
