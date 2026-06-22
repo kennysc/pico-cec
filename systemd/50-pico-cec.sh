@@ -20,16 +20,21 @@ TARGET="$2"
 
 CTL=/usr/local/bin/pico-cec-ctl.py
 LOG_TAG="pico-cec-sleep-hook"
+LOG_FILE=/run/pico-cec/sleep-hook.log
 
 log() {
+    mkdir -p /run/pico-cec
+    printf '%s %s\n' "$(date --iso-8601=seconds)" "$*" >> "$LOG_FILE"
     logger -t "$LOG_TAG" "$*"
 }
 
 case "$ACTION/$TARGET" in
     pre/*)
         log "system entering $TARGET, requesting TV standby"
-        if ! "$CTL" PWR_OFF; then
-            log "WARNING: pico-cec-ctl PWR_OFF did not ACK (continuing sleep anyway)"
+        if output=$("$CTL" PWR_OFF 2>&1); then
+            log "pico-cec-ctl PWR_OFF -> $output"
+        else
+            log "WARNING: pico-cec-ctl PWR_OFF failed -> $output (continuing sleep anyway)"
         fi
         ;;
     post/*)
@@ -38,8 +43,10 @@ case "$ACTION/$TARGET" in
         # and for the Pico to notice HPD / re-read EDID if it tracks that,
         # before we ask it to drive CEC.
         sleep 1
-        if ! "$CTL" PWR_ON; then
-            log "WARNING: pico-cec-ctl PWR_ON did not ACK"
+        if output=$("$CTL" PWR_ON 2>&1); then
+            log "pico-cec-ctl PWR_ON -> $output"
+        else
+            log "WARNING: pico-cec-ctl PWR_ON failed -> $output"
         fi
         ;;
     *)
